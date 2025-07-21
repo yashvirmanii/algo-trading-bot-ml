@@ -12,45 +12,72 @@ A comprehensive, modular, and adaptive intraday trading bot for Indian stock mar
 - Comprehensive logging and error handling
 - Unit/integration tests with pytest
 - CSV-based storage (no DB required)
+- **Dynamic stock universe selection** with robust intraday filters
+- **Sentiment analysis overlay** using Hugging Face models and news/tweets
 
-## Setup
-1. **Clone the repo**
-2. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. **Create a `.env` file** (see `.env.example`)
-4. **Run the bot**
-   ```bash
-   python main.py
-   ```
+## Dynamic Stock Universe Filtering
+The bot uses Kite Connect’s `instruments()` API to fetch all NSE equity instruments and applies industry-backed intraday filters:
+- **Price**: ₹10–₹5,000 (avoids penny/illiquid stocks)
+- **Volume**: Daily average > 200,000 (configurable)
+- **52-week range**: Only stocks in the 30–70% range (mid-range, avoids overbought/oversold)
+- **Volatility**: ATR not too low (configurable)
+- **Ban/illiquid/expired**: Excludes stocks in ban list or expired
 
-## Security
-- Store all API keys and tokens in `.env` (never hardcode)
-- Only allow authorized Telegram chat IDs
-- Sensitive data is never logged
+**References:**
+- [Elearnmarkets: How to Filter Stocks for Intraday Trading](https://blog.elearnmarkets.com/filter-stock-for-intraday-trading/)
+- [Investopedia: How to Pick Stocks for Intraday Trading](https://www.investopedia.com/day-trading/pick-stocks-intraday-trading/)
+- [Groww: How to Select Stocks for Intraday](https://groww.in/blog/how-to-select-stocks-for-intraday)
+- [StockPathshala: How to Select Stocks for Intraday](https://stockpathshala.com/how-to-select-stocks-for-intraday/)
 
-## Logging
-- All modules use Python's `logging` for info, warning, error, and debug logs
-- Logs are stored in `logs/` directory
+## Sentiment Analysis Integration
+- Uses a Hugging Face transformer model (e.g., `finiteautomata/twitter-roberta-base-sentiment-analysis`)
+- Fetches news headlines (NewsAPI) or tweets (Twitter API) for each stock
+- Classifies sentiment as +1 (Bullish), 0 (Neutral), -1 (Bearish)
+- Sentiment score is integrated into the composite signal with a configurable weight
+- Strongly negative sentiment deprioritizes or filters out stocks, even if technicals are strong
+
+## Configuration Options
+- **min_price**: Minimum stock price (default: 10)
+- **max_price**: Maximum stock price (default: 5000)
+- **min_volume**: Minimum daily average volume (default: 200,000)
+- **min_atr**: Minimum ATR for volatility (default: 1)
+- **max_atr**: Maximum ATR (default: 100)
+- **min_range**: Minimum 52-week range % (default: 0.3)
+- **max_range**: Maximum 52-week range % (default: 0.7)
+- **ban_list**: List of banned/illiquid stocks
+- **sentiment_weight**: Weight of sentiment in composite signal (default: 0.2)
+- **sentiment_threshold**: Threshold for filtering out negative sentiment (default: -0.5)
+- All options are configurable in the relevant module constructors or config files
 
 ## Testing
+- Unit tests for stock universe filtering: `tests/test_stock_universe.py`
+- Integration tests for sentiment parser: `tests/test_sentiment_parser.py`
 - Run all tests with:
   ```bash
   pytest
   ```
-- Tests cover all core modules and strategies
+
+## How Sentiment & Universe Filtering Improve Intraday Trading
+- **Stock universe filtering** ensures only liquid, mid-range, and sufficiently volatile stocks are traded, reducing slippage and improving fill quality.
+- **Sentiment overlay** helps avoid stocks with negative news/tweets, reducing the risk of technical “traps” and improving win rate.
+- Both modules are fully integrated into the signal engine and trading loop for adaptive, data-driven decision making.
 
 ## Architecture
-- `core/strategies/`: All strategy modules
-- `core/strategies/strategy_pool.py`: Pool manager for random strategy selection/weighting
-- `core/risk.py`: Risk management
-- `data/storage.py`: Trade logging and analytics (CSV)
+- `analyzers/stock_universe.py`: Dynamic universe selection and filtering
+- `analyzers/sentiment_parser.py`: Sentiment scoring from news/tweets
+- `core/signal_engine.py`: Composite signal calculation (with sentiment)
+- `core/weights_manager.py`: Adaptive weights
+- `core/capital_allocator.py`: Capital allocation
+- `core/volatility_filter.py`: Volatility/time filter
+- `core/risk_reward.py`: Dynamic SL/TP
+- `core/strategy_switcher.py`: Strategy switching
+- `core/order_executor.py`: Smart order execution
+- `core/paper_trader.py`: Paper trading
 - `notify/telegram.py`: Telegram bot and notifications
 - `main.py`: Main trading loop
 
 ## Extending
-- Add new strategies by creating a new module in `core/strategies/` and registering in the pool
+- Add new filters or sentiment sources by editing the relevant analyzer modules
 - All parameters are configurable via `.env` and config files
 
 ## Disclaimer
