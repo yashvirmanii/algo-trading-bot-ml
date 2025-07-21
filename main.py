@@ -22,6 +22,7 @@ from broker.zerodha import ZerodhaBroker
 from notify.telegram import TelegramNotifier
 from data.storage import TradeLogger
 from core.strategies.strategy_pool import StrategyPoolManager
+from core.risk_reward import RiskRewardManager
 
 # Load environment variables
 load_dotenv()
@@ -49,6 +50,7 @@ def main():
         notifier = TelegramNotifier(TELEGRAM_TOKEN, TELEGRAM_CHAT_ID)
         trade_logger = TradeLogger()
         pool = StrategyPoolManager()
+        rr_manager = RiskRewardManager()
 
         # 1. Screen stocks
         try:
@@ -76,9 +78,14 @@ def main():
                     break
                 signal = combined_signal[i]
                 entry_price = df['close'].iloc[-1]
+                atr = df['atr'].iloc[-1] if 'atr' in df.columns else 1
+                direction = 1  # Assume long for now
+                signal_confidence = min(max(signal, 0), 1)  # Clamp to 0-1
                 if signal > 0.5 and risk.check_max_trades(0):  # Replace 0 with real trade count
+                    # Calculate SL/TP
+                    sl, tp, rr = rr_manager.calculate_sl_tp(entry_price, direction, atr, signal_confidence)
                     qty = 1  # Placeholder
-                    exit_price = entry_price * 1.01  # Simulate 1% gain
+                    exit_price = tp  # Simulate hitting target for demo
                     pnl = exit_price - entry_price
                     trade_logger.log_trade(
                         symbol=symbol,
@@ -90,9 +97,11 @@ def main():
                         signals='pool',
                         strategy='pool',
                         outcome='win' if pnl > 0 else 'loss',
-                        notes='Strategy pool trade'
+                        notes=f'Strategy pool trade | SL: {sl:.2f} | TP: {tp:.2f} | R:R: {rr:.2f}'
                     )
-                    notifier.send_message(f"Pool Trade: Bought {symbol} at {entry_price:.2f}, exited at {exit_price:.2f}, PnL: {pnl:.2f}")
+                    notifier.send_message(
+                        f"Pool Trade: Bought {symbol} at {entry_price:.2f}, SL: {sl:.2f}, TP: {tp:.2f}, exited at {exit_price:.2f}, PnL: {pnl:.2f}, R:R: {rr:.2f}"
+                    )
                 else:
                     notifier.send_message(f"No pool trade for {symbol} (signal: {signal:.2f})")
             except Exception as e:
