@@ -1,0 +1,11 @@
+kiteconnect
+python-telegram-bot
+pandas
+numpy
+requests
+scikit-learn
+matplotlib 
+yfinance
+nsetools 
+python-dotenv
+pytest 
