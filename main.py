@@ -23,6 +23,8 @@ from notify.telegram import TelegramNotifier
 from data.storage import TradeLogger
 from core.strategies.strategy_pool import StrategyPoolManager
 from core.risk_reward import RiskRewardManager
+from core.order_executor import SmartOrderExecutor
+from core.paper_trader import PaperTrader
 
 # Load environment variables
 load_dotenv()
@@ -51,6 +53,8 @@ def main():
         trade_logger = TradeLogger()
         pool = StrategyPoolManager()
         rr_manager = RiskRewardManager()
+        order_executor = SmartOrderExecutor(broker)
+        paper_trader = PaperTrader(total_capital=1000000)  # Example capital
 
         # 1. Screen stocks
         try:
@@ -85,23 +89,44 @@ def main():
                     # Calculate SL/TP
                     sl, tp, rr = rr_manager.calculate_sl_tp(entry_price, direction, atr, signal_confidence)
                     qty = 1  # Placeholder
-                    exit_price = tp  # Simulate hitting target for demo
-                    pnl = exit_price - entry_price
-                    trade_logger.log_trade(
-                        symbol=symbol,
-                        side='buy',
-                        qty=qty,
-                        entry_price=entry_price,
-                        exit_price=exit_price,
-                        pnl=pnl,
-                        signals='pool',
-                        strategy='pool',
-                        outcome='win' if pnl > 0 else 'loss',
-                        notes=f'Strategy pool trade | SL: {sl:.2f} | TP: {tp:.2f} | R:R: {rr:.2f}'
-                    )
-                    notifier.send_message(
-                        f"Pool Trade: Bought {symbol} at {entry_price:.2f}, SL: {sl:.2f}, TP: {tp:.2f}, exited at {exit_price:.2f}, PnL: {pnl:.2f}, R:R: {rr:.2f}"
-                    )
+                    if notifier.mode == 'paper':
+                        success, msg = paper_trader.buy(symbol, qty, entry_price, sl, tp)
+                        exit_price = tp  # Simulate hitting target for demo
+                        pnl = exit_price - entry_price
+                        trade_logger.log_trade(
+                            symbol=symbol,
+                            side='buy',
+                            qty=qty,
+                            entry_price=entry_price,
+                            exit_price=exit_price,
+                            pnl=pnl,
+                            signals='pool',
+                            strategy='pool',
+                            outcome='win' if pnl > 0 else 'loss',
+                            notes=f'Paper trade | SL: {sl:.2f} | TP: {tp:.2f} | R:R: {rr:.2f}'
+                        )
+                        notifier.send_message(
+                            f"Paper Trade: Bought {symbol} at {entry_price:.2f}, SL: {sl:.2f}, TP: {tp:.2f}, exited at {exit_price:.2f}, PnL: {pnl:.2f}, R:R: {rr:.2f} | {msg}"
+                        )
+                    else:
+                        success, fill_price, msg = order_executor.execute_order(symbol, qty, entry_price, sl, tp, side='buy', live=True)
+                        exit_price = tp  # For logging, assume TP hit
+                        pnl = exit_price - fill_price if success else 0
+                        trade_logger.log_trade(
+                            symbol=symbol,
+                            side='buy',
+                            qty=qty,
+                            entry_price=fill_price,
+                            exit_price=exit_price,
+                            pnl=pnl,
+                            signals='pool',
+                            strategy='pool',
+                            outcome='win' if pnl > 0 else 'loss',
+                            notes=f'Live trade | SL: {sl:.2f} | TP: {tp:.2f} | R:R: {rr:.2f} | {msg}'
+                        )
+                        notifier.send_message(
+                            f"Live Trade: Bought {symbol} at {fill_price:.2f}, SL: {sl:.2f}, TP: {tp:.2f}, exited at {exit_price:.2f}, PnL: {pnl:.2f}, R:R: {rr:.2f} | {msg}"
+                        )
                 else:
                     notifier.send_message(f"No pool trade for {symbol} (signal: {signal:.2f})")
             except Exception as e:

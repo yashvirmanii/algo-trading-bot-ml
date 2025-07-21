@@ -67,7 +67,7 @@ class TelegramNotifier:
             "/start - Start the bot\n"
             "/stop - Stop all trading activity\n"
             "/status - Get current bot status\n"
-            "/mode [live/paper] - Switch between live and paper trading\n"
+            "/mode [live/paper] - Toggle between live and paper trading mode\n"
             "/pnl - Get current day's PnL and trade summary\n"
             "/universe - Show current stock universe being traded\n"
             "/weights - Show current strategy/indicator weights\n"
@@ -77,6 +77,7 @@ class TelegramNotifier:
         context.bot.send_message(chat_id=self.chat_id, text=help_text)
 
     def mode_cmd(self, update: Update, context: CallbackContext):
+        """/mode [live/paper] - Toggle between live and paper trading mode."""
         if str(update.effective_chat.id) != str(self.chat_id):
             return
         if context.args and context.args[0].lower() in ['live', 'paper']:
