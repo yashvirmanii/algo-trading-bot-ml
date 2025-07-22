@@ -257,12 +257,13 @@ class StockScreener:
         
         logger.info("StockScreener initialized with instruments dump processing")
     
-    def get_tradable_stocks(self, force_refresh: bool = False) -> pd.DataFrame:
+    def get_tradable_stocks(self, force_refresh: bool = False, include_sentiment: bool = True) -> pd.DataFrame:
         """
         Get tradeable stocks using instruments dump and advanced filtering
         
         Args:
             force_refresh: Force refresh of instruments data
+            include_sentiment: Whether to include sentiment analysis
             
         Returns:
             DataFrame with tradeable stocks and their data
@@ -297,13 +298,19 @@ class StockScreener:
             # Step 6: Add technical indicators
             final_universe_with_indicators = self._add_technical_indicators(final_universe)
             
+            # Step 7: Add sentiment analysis
+            if include_sentiment:
+                final_universe_with_sentiment = self._add_sentiment_analysis(final_universe_with_indicators)
+            else:
+                final_universe_with_sentiment = final_universe_with_indicators
+            
             # Track screening performance
             screening_time = (datetime.now() - start_time).total_seconds()
-            self._track_screening_performance(len(instruments_df), len(final_universe_with_indicators), screening_time)
+            self._track_screening_performance(len(instruments_df), len(final_universe_with_sentiment), screening_time)
             
-            logger.info(f"Screening completed: {len(instruments_df)} instruments → {len(final_universe_with_indicators)} tradeable stocks in {screening_time:.2f}s")
+            logger.info(f"Screening completed: {len(instruments_df)} instruments → {len(final_universe_with_sentiment)} tradeable stocks in {screening_time:.2f}s")
             
-            return final_universe_with_indicators
+            return final_universe_with_sentiment
             
         except Exception as e:
             logger.error(f"Error in get_tradable_stocks: {e}")
@@ -448,53 +455,157 @@ class StockScreener:
             return pd.DataFrame()
     
     def _add_technical_indicators(self, stocks_df: pd.DataFrame) -> pd.DataFrame:
-        """Add technical indicators to stock data"""
+        """Add enhanced technical indicators to stock data"""
         try:
             if stocks_df.empty:
                 return pd.DataFrame()
             
             enhanced_stocks = []
             
+            # Import enhanced technical indicators
+            from core.technical_indicators import EnhancedTechnicalIndicators, TechnicalIndicatorConfig
+            
+            # Initialize technical calculator
+            indicator_config = TechnicalIndicatorConfig()
+            technical_calculator = EnhancedTechnicalIndicators(indicator_config)
+            
             for _, stock in stocks_df.iterrows():
                 try:
                     hist_data = stock['data'].copy()
                     
-                    # Add RSI
-                    delta = hist_data['close'].diff()
-                    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-                    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-                    rs = gain / loss
-                    hist_data['rsi'] = 100 - (100 / (1 + rs))
+                    # Calculate all enhanced technical indicators
+                    enhanced_data = technical_calculator.calculate_all_indicators(hist_data)
                     
-                    # Add moving averages
-                    hist_data['sma_20'] = hist_data['close'].rolling(20).mean()
-                    hist_data['ema_12'] = hist_data['close'].ewm(span=12).mean()
-                    hist_data['ema_26'] = hist_data['close'].ewm(span=26).mean()
-                    
-                    # Add MACD
-                    hist_data['macd'] = hist_data['ema_12'] - hist_data['ema_26']
-                    hist_data['macd_signal'] = hist_data['macd'].ewm(span=9).mean()
-                    
-                    # Add Bollinger Bands
-                    hist_data['bb_middle'] = hist_data['close'].rolling(20).mean()
-                    bb_std = hist_data['close'].rolling(20).std()
-                    hist_data['bb_upper'] = hist_data['bb_middle'] + (bb_std * 2)
-                    hist_data['bb_lower'] = hist_data['bb_middle'] - (bb_std * 2)
-                    
-                    # Update stock data
+                    # Update stock data with enhanced indicators
                     stock_dict = stock.to_dict()
-                    stock_dict['data'] = hist_data
+                    stock_dict['data'] = enhanced_data
+                    
+                    # Add summary indicators to stock level for easy access
+                    if not enhanced_data.empty:
+                        latest = enhanced_data.iloc[-1]
+                        stock_dict.update({
+                            'vwap': latest.get('vwap', stock_dict['close']),
+                            'vwap_signal': latest.get('vwap_signal', 'neutral'),
+                            'rsi_14': latest.get('rsi_14', 50),
+                            'rsi_signal': latest.get('rsi_14_signal', 'neutral'),
+                            'macd_trend': latest.get('macd_trend', 'neutral'),
+                            'supertrend_signal': latest.get('supertrend_signal', 'neutral'),
+                            'ema_alignment': latest.get('ema_alignment', 'neutral'),
+                            'composite_signal': latest.get('composite_signal', 'neutral'),
+                            'signal_strength': latest.get('signal_strength', 0),
+                            'volatility_regime': latest.get('volatility_regime', 'normal')
+                        })
+                    
                     enhanced_stocks.append(stock_dict)
                     
                 except Exception as e:
-                    logger.warning(f"Error adding indicators for {stock['symbol']}: {e}")
-                    # Add stock without indicators
-                    enhanced_stocks.append(stock.to_dict())
+                    logger.warning(f"Error adding enhanced indicators for {stock['symbol']}: {e}")
+                    # Add stock without enhanced indicators (fallback to basic)
+                    stock_dict = stock.to_dict()
+                    try:
+                        # Basic fallback indicators
+                        hist_data = stock['data'].copy()
+                        hist_data['rsi'] = 50  # Default RSI
+                        hist_data['sma_20'] = hist_data['close'].rolling(20).mean()
+                        stock_dict['data'] = hist_data
+                        stock_dict.update({
+                            'vwap': stock_dict['close'],
+                            'vwap_signal': 'neutral',
+                            'rsi_14': 50,
+                            'composite_signal': 'neutral'
+                        })
+                    except:
+                        pass
+                    enhanced_stocks.append(stock_dict)
             
+            logger.info(f"Enhanced technical indicators added to {len(enhanced_stocks)} stocks")
             return pd.DataFrame(enhanced_stocks)
             
         except Exception as e:
-            logger.error(f"Error adding technical indicators: {e}")
+            logger.error(f"Error adding enhanced technical indicators: {e}")
+            return stocks_df
+    
+    def _add_sentiment_analysis(self, stocks_df: pd.DataFrame) -> pd.DataFrame:
+        """Add sentiment analysis to stock data"""
+        try:
+            if stocks_df.empty:
+                return pd.DataFrame()
+            
+            # Import sentiment analyzer
+            from core.sentiment_integration import SentimentTechnicalIntegrator
+            
+            # Initialize sentiment integrator
+            sentiment_integrator = SentimentTechnicalIntegrator(
+                sentiment_weight=0.18,  # 18% sentiment weight
+                technical_weight=0.82   # 82% technical weight
+            )
+            
+            enhanced_stocks = []
+            
+            for _, stock in stocks_df.iterrows():
+                try:
+                    symbol = stock['symbol']
+                    
+                    # Prepare technical data for sentiment integration
+                    technical_data = {
+                        'overall_score': stock.get('signal_strength', 0),
+                        'confidence': abs(stock.get('signal_strength', 0)),
+                        'rsi': stock.get('rsi_14', 50),
+                        'macd_signal': stock.get('macd_trend', 'neutral'),
+                        'price_vs_vwap': stock.get('vwap_signal', 'neutral'),
+                        'volume_ratio': 1.0  # Default volume ratio
+                    }
+                    
+                    # Get market data for sentiment analysis
+                    market_data = stock.get('data', pd.DataFrame())
+                    
+                    # Create enhanced signal with sentiment
+                    enhanced_signal = sentiment_integrator.create_enhanced_signal(
+                        symbol, technical_data, market_data
+                    )
+                    
+                    # Update stock data with sentiment information
+                    stock_dict = stock.to_dict()
+                    stock_dict.update({
+                        'sentiment_score': enhanced_signal.sentiment_score,
+                        'sentiment_confidence': enhanced_signal.sentiment_confidence,
+                        'sentiment_category': enhanced_signal.sentiment_category,
+                        'combined_score': enhanced_signal.combined_score,
+                        'final_confidence': enhanced_signal.final_confidence,
+                        'trade_direction': enhanced_signal.trade_direction,
+                        'position_size_multiplier': enhanced_signal.position_size_multiplier,
+                        'risk_adjustment': enhanced_signal.risk_adjustment,
+                        'enable_short_selling': enhanced_signal.enable_short_selling,
+                        'skip_trade': enhanced_signal.skip_trade,
+                        'sentiment_reasoning': enhanced_signal.reasoning
+                    })
+                    
+                    enhanced_stocks.append(stock_dict)
+                    
+                except Exception as e:
+                    logger.warning(f"Error adding sentiment analysis for {stock['symbol']}: {e}")
+                    # Add stock without sentiment (fallback)
+                    stock_dict = stock.to_dict()
+                    stock_dict.update({
+                        'sentiment_score': 0.0,
+                        'sentiment_confidence': 0.0,
+                        'sentiment_category': 'neutral',
+                        'combined_score': stock.get('signal_strength', 0),
+                        'final_confidence': abs(stock.get('signal_strength', 0)),
+                        'trade_direction': 'long' if stock.get('signal_strength', 0) > 0 else 'neutral',
+                        'position_size_multiplier': 1.0,
+                        'risk_adjustment': 1.0,
+                        'enable_short_selling': False,
+                        'skip_trade': False,
+                        'sentiment_reasoning': ['Sentiment analysis failed - using technical signals only']
+                    })
+                    enhanced_stocks.append(stock_dict)
+            
+            logger.info(f"Sentiment analysis added to {len(enhanced_stocks)} stocks")
+            return pd.DataFrame(enhanced_stocks)
+            
+        except Exception as e:
+            logger.error(f"Error adding sentiment analysis: {e}")
             return stocks_df
     
     def _track_screening_performance(self, total_instruments: int, final_count: int, screening_time: float):

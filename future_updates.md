@@ -64,55 +64,6 @@ API limits: Too many order modification requests
 
 
 
-
-
-
-
-Point 5: Enhanced Technical Indicators in Market Data Collection
-Current Technical Indicators (in the existing system):
-Basic OHLCV data
-Simple Moving Averages (SMA)
-ATR (Average True Range)
-Basic RSI
-Basic MACD
-NEW Technical Indicators to Add:
-1. Volume Weighted Average Price (VWAP)
-Purpose: Shows average price weighted by volume
-Usage: Key support/resistance level, institutional trading benchmark
-Signal: Price above VWAP = bullish, below = bearish
-2. Enhanced RSI (Relative Strength Index)
-Current: Basic RSI calculation
-Enhancement: Multiple timeframes (14-period, 21-period)
-Usage: Overbought (>70), Oversold (<30), Divergence detection
-3. Enhanced MACD (Moving Average Convergence Divergence)
-Current: Basic MACD
-Enhancement: MACD line, Signal line, Histogram
-Usage: Trend changes, momentum shifts, crossover signals
-4. SuperTrend
-Purpose: Trend-following indicator using ATR
-Usage: Clear buy/sell signals, trend direction
-Signal: Price above SuperTrend = uptrend, below = downtrend
-5. Exponential Moving Averages
-9 EMA: Short-term trend
-21 EMA: Medium-term trend
-Usage: Crossovers, support/resistance, trend confirmation
-Implementation Location:
-File: broker/zerodha.py or new core/technical_indicators.py
-Integration: Enhanced market data collection step
-Storage: All indicators attached to each stock's dataframe
-Benefits for Multi-Agent System:
-More precise signals: Agents have richer data for analysis
-Better trend detection: SuperTrend + EMA combinations
-Volume confirmation: VWAP adds volume-weighted perspective
-Momentum analysis: Enhanced RSI + MACD for momentum trades
-Support/Resistance: VWAP, EMAs as dynamic S/R levels
-Agent-Specific Usage:
-Breakout Agent: Use VWAP as breakout confirmation level
-Trend Agent: EMA crossovers + SuperTrend for trend signals
-Scalping Agent: Short-term EMA + RSI for quick entries
-Volatility Agent: Enhanced MACD histogram for volatility signals
-This will make the technical analysis much more sophisticated and reliable!
-
 while trading i need the sl and profit target to be dynamic so for example if curretn price is 10 then profit target is 12 and sl is 9 and as soon as the current price moves to 11 the profit target moves up to become 13 and the stop lose also gets up and become 10 is that achievable ? do we have acces to live data that accurately ?
 
 Kiro

@@ -8,4 +8,8 @@ matplotlib
 yfinance
 nsetools 
 python-dotenv
-pytest 
+pytest
+scipy
+ta-lib
+xgboost
+lightgbm 

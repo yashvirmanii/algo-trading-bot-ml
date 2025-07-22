@@ -22,7 +22,6 @@ from datetime import datetime
 from typing import List, Dict
 from dotenv import load_dotenv
 from core.screener import StockScreener
-from core.risk import RiskManager
 from broker.zerodha import ZerodhaBroker
 from notify.telegram import TelegramNotifier
 from data.storage import TradeLogger
@@ -550,7 +549,6 @@ def analyze_completed_trade(outcome_analyzer, symbol, df, entry_price, exit_pric
 def main():
     try:
         screener = StockScreener()
-        risk = RiskManager()
         broker = ZerodhaBroker(API_KEY, API_SECRET, ACCESS_TOKEN)
         notifier = TelegramNotifier(TELEGRAM_TOKEN, TELEGRAM_CHAT_ID)
         trade_logger = TradeLogger()

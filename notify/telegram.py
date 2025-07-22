@@ -121,8 +121,63 @@ class TelegramNotifier:
     def sentiment(self, update: Update, context: CallbackContext):
         if str(update.effective_chat.id) != str(self.chat_id):
             return
-        # Placeholder: Replace with real sentiment
-        context.bot.send_message(chat_id=self.chat_id, text="Sentiment: RELIANCE=Bullish, TCS=Neutral, INFY=Bearish")
+        
+        try:
+            # Get sentiment analysis from screener
+            from core.screener import StockScreener
+            screener = StockScreener()
+            
+            # Get stocks with sentiment analysis
+            stocks_with_sentiment = screener.get_tradable_stocks(include_sentiment=True)
+            
+            if stocks_with_sentiment.empty:
+                context.bot.send_message(chat_id=self.chat_id, text="❌ No sentiment data available")
+                return
+            
+            # Create sentiment report
+            message = "📊 **Current Sentiment Analysis**\n\n"
+            
+            # Show top 10 stocks with sentiment
+            top_stocks = stocks_with_sentiment.head(10)
+            
+            for _, stock in top_stocks.iterrows():
+                symbol = stock['symbol']
+                sentiment_score = stock.get('sentiment_score', 0)
+                sentiment_category = stock.get('sentiment_category', 'neutral')
+                combined_score = stock.get('combined_score', 0)
+                trade_direction = stock.get('trade_direction', 'neutral')
+                
+                # Emoji based on sentiment
+                if sentiment_category == 'strong_positive':
+                    emoji = "🚀"
+                elif sentiment_category == 'positive':
+                    emoji = "📈"
+                elif sentiment_category == 'strong_negative':
+                    emoji = "📉"
+                elif sentiment_category == 'negative':
+                    emoji = "⚠️"
+                else:
+                    emoji = "➖"
+                
+                message += f"{emoji} **{symbol}**\n"
+                message += f"   Sentiment: {sentiment_category.title()} ({sentiment_score:.2f})\n"
+                message += f"   Combined Score: {combined_score:.2f}\n"
+                message += f"   Direction: {trade_direction.upper()}\n\n"
+            
+            # Add summary
+            bullish_count = len(stocks_with_sentiment[stocks_with_sentiment['sentiment_category'].isin(['positive', 'strong_positive'])])
+            bearish_count = len(stocks_with_sentiment[stocks_with_sentiment['sentiment_category'].isin(['negative', 'strong_negative'])])
+            neutral_count = len(stocks_with_sentiment) - bullish_count - bearish_count
+            
+            message += f"📊 **Summary**:\n"
+            message += f"🟢 Bullish: {bullish_count}\n"
+            message += f"🔴 Bearish: {bearish_count}\n"
+            message += f"⚪ Neutral: {neutral_count}\n"
+            
+            context.bot.send_message(chat_id=self.chat_id, text=message)
+            
+        except Exception as e:
+            context.bot.send_message(chat_id=self.chat_id, text=f"❌ Error getting sentiment data: {str(e)}")
 
     def set_capital(self, update: Update, context: CallbackContext):
         """Handle /setcapital command for dynamic capital management"""
