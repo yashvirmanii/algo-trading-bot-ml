@@ -1,4 +1,4 @@
-# Advanced Indian Market Intraday Trading Bot
+git # Advanced Indian Market Intraday Trading Bot
 
 ## Overview
 A comprehensive, modular, and adaptive intraday trading bot for Indian stock markets (NSE/BSE) using Zerodha Kite Connect, AI/ML, and Telegram notifications. Supports multiple strategies, adaptive weights, RL agent, and robust error handling.
@@ -17,7 +17,7 @@ A comprehensive, modular, and adaptive intraday trading bot for Indian stock mar
 
 ## Dynamic Stock Universe Filtering
 The bot uses Kite Connect’s `instruments()` API to fetch all NSE equity instruments and applies industry-backed intraday filters:
-- **Price**: ₹10–₹5,000 (avoids penny/illiquid stocks)
+- **Price**: ₹10–₹1,000 (avoids penny/illiquid stocks)
 - **Volume**: Daily average > 200,000 (configurable)
 - **52-week range**: Only stocks in the 30–70% range (mid-range, avoids overbought/oversold)
 - **Volatility**: ATR not too low (configurable)
@@ -38,7 +38,7 @@ The bot uses Kite Connect’s `instruments()` API to fetch all NSE equity instru
 
 ## Configuration Options
 - **min_price**: Minimum stock price (default: 10)
-- **max_price**: Maximum stock price (default: 5000)
+- **max_price**: Maximum stock price (default: 1000)
 - **min_volume**: Minimum daily average volume (default: 200,000)
 - **min_atr**: Minimum ATR for volatility (default: 1)
 - **max_atr**: Maximum ATR (default: 100)

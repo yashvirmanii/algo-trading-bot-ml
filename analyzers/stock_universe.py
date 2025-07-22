@@ -2,7 +2,7 @@
 Stock Universe Analyzer
 
 Fetches all NSE equity instruments from Kite Connect and applies intraday trading filters:
-- Price between ₹10 and ₹5,000
+- Price between ₹10 and ₹1,000
 - Daily average volume > 200k (configurable)
 - 52-week high/low range within 30–70% (mid-range)
 - ATR-based volatility not too low
@@ -18,7 +18,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 class StockUniverse:
-    def __init__(self, broker, min_price=10, max_price=5000, min_volume=200_000, min_atr=1, max_atr=100, min_range=0.3, max_range=0.7, ban_list=None):
+    def __init__(self, broker, min_price=10, max_price=1000, min_volume=200_000, min_atr=1, max_atr=100, min_range=0.3, max_range=0.7, ban_list=None):
         self.broker = broker
         self.min_price = min_price
         self.max_price = max_price

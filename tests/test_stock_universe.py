@@ -18,7 +18,7 @@ class MockBroker:
 
 def test_stock_universe_filters():
     broker = MockBroker()
-    su = StockUniverse(broker, min_price=10, max_price=5000, min_volume=200_000, min_atr=1, max_atr=3, min_range=0.2, max_range=0.8)
+    su = StockUniverse(broker, min_price=10, max_price=1000, min_volume=200_000, min_atr=1, max_atr=3, min_range=0.2, max_range=0.8)
     universe = su.get_universe()
     assert 'ABC' in universe
     assert 'XYZ' not in universe  # price/volume too low
