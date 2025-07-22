@@ -1,0 +1,202 @@
+# Model Serving Pipeline Configuration
+
+# Server Configuration
+server:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
+  log_level: "info"
+  reload: false
+  access_log: true
+
+# Model Configuration
+models:
+  # Trading Strategy Selector
+  strategy_selector:
+    name: "strategy_selector"
+    version: "v1.0"
+    model_path: "models/strategy_selector.pkl"
+    model_type: "sklearn"
+    max_batch_size: 100
+    timeout_ms: 1000
+    memory_limit_mb: 512
+    warmup_requests: 10
+    a_b_test_weight: 1.0
+    feature_schema:
+      price_momentum_1m: "float"
+      price_momentum_5m: "float"
+      price_momentum_15m: "float"
+      volume_ratio: "float"
+      rsi: "float"
+      macd_signal: "float"
+      bb_position: "float"
+      trend_strength: "float"
+      market_breadth: "float"
+      vix_level: "float"
+
+  # DQN Trading Agent
+  dqn_agent:
+    name: "dqn_agent"
+    version: "v1.0"
+    model_path: "models/dqn_agent.pkl"
+    model_type: "custom"
+    max_batch_size: 50
+    timeout_ms: 2000
+    memory_limit_mb: 1024
+    warmup_requests: 5
+    a_b_test_weight: 1.0
+    feature_schema:
+      # Market features (30 dimensions)
+      price_momentum_1m: "float"
+      price_momentum_5m: "float"
+      price_momentum_15m: "float"
+      price_momentum_30m: "float"
+      price_volatility: "float"
+      volume_ratio: "float"
+      volume_trend: "float"
+      volume_momentum: "float"
+      rsi: "float"
+      macd: "float"
+      macd_signal: "float"
+      bb_position: "float"
+      bb_width: "float"
+      sma_20: "float"
+      ema_12: "float"
+      ema_26: "float"
+      atr: "float"
+      stoch_k: "float"
+      stoch_d: "float"
+      williams_r: "float"
+      cci: "float"
+      adx: "float"
+      trend_strength: "float"
+      support_resistance_distance: "float"
+      breakout_probability: "float"
+      mean_reversion_signal: "float"
+      market_regime_trending: "float"
+      market_regime_sideways: "float"
+      market_regime_volatile: "float"
+      news_sentiment: "float"
+      # Portfolio state (10 dimensions)
+      cash_ratio: "float"
+      position_size: "float"
+      unrealized_pnl: "float"
+      realized_pnl: "float"
+      total_return: "float"
+      sharpe_ratio: "float"
+      max_drawdown: "float"
+      win_rate: "float"
+      avg_trade_duration: "float"
+      trades_count: "float"
+      # Strategy performance (10 dimensions)
+      momentum_performance: "float"
+      mean_reversion_performance: "float"
+      breakout_performance: "float"
+      trend_following_performance: "float"
+      scalping_performance: "float"
+      momentum_confidence: "float"
+      mean_reversion_confidence: "float"
+      breakout_confidence: "float"
+      trend_following_confidence: "float"
+      scalping_confidence: "float"
+
+  # Position Sizer
+  position_sizer:
+    name: "position_sizer"
+    version: "v1.0"
+    model_path: "models/position_sizer.pkl"
+    model_type: "sklearn"
+    max_batch_size: 200
+    timeout_ms: 500
+    memory_limit_mb: 256
+    warmup_requests: 15
+    a_b_test_weight: 1.0
+    feature_schema:
+      signal_confidence: "float"
+      market_volatility: "float"
+      portfolio_exposure: "float"
+      current_drawdown: "float"
+      recent_performance: "float"
+      win_rate: "float"
+      sharpe_ratio: "float"
+      volatility_regime: "float"
+      position_count: "float"
+      available_capital_ratio: "float"
+
+  # Sentiment Analyzer
+  sentiment_analyzer:
+    name: "sentiment_analyzer"
+    version: "v1.0"
+    model_path: "models/sentiment_analyzer.pkl"
+    model_type: "sklearn"
+    max_batch_size: 50
+    timeout_ms: 3000
+    memory_limit_mb: 512
+    warmup_requests: 5
+    a_b_test_weight: 1.0
+    feature_schema:
+      news_sentiment: "float"
+      social_sentiment: "float"
+      news_confidence: "float"
+      social_confidence: "float"
+      news_count: "int"
+      social_count: "int"
+
+# Caching Configuration
+cache:
+  type: "memory"  # "memory" or "redis"
+  redis_url: "redis://localhost:6379/0"
+  ttl_seconds: 300
+  max_size: 10000
+
+# Monitoring Configuration
+monitoring:
+  enable_prometheus: true
+  prometheus_port: 9090
+  log_requests: true
+  log_responses: true
+  max_log_entries: 100000
+  health_check_interval: 30
+
+# A/B Testing Configuration
+ab_testing:
+  enable: true
+  default_experiment_duration_hours: 24
+  min_requests_per_variant: 100
+  significance_level: 0.05
+
+# Circuit Breaker Configuration
+circuit_breaker:
+  failure_threshold: 5
+  recovery_timeout_seconds: 60
+  half_open_max_calls: 3
+
+# Load Balancing Configuration
+load_balancing:
+  strategy: "round_robin"  # "round_robin", "weighted", "least_connections"
+  health_check_interval: 10
+  unhealthy_threshold: 3
+
+# Security Configuration
+security:
+  enable_auth: false
+  api_key_header: "X-API-Key"
+  rate_limit_requests_per_minute: 1000
+  cors_origins: ["*"]
+
+# Performance Configuration
+performance:
+  max_concurrent_requests: 1000
+  request_timeout_seconds: 30
+  batch_timeout_seconds: 60
+  model_warmup_enabled: true
+  preload_models: true
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/model_serving.log"
+  max_file_size_mb: 100
+  backup_count: 5
+  enable_structured_logging: true

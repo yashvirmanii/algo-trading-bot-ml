@@ -1,0 +1,48 @@
+# Model Serving Pipeline Dockerfile
+FROM python:3.9-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install additional model serving dependencies
+RUN pip install --no-cache-dir \
+    fastapi==0.104.1 \
+    uvicorn[standard]==0.24.0 \
+    prometheus-client==0.19.0 \
+    redis==5.0.1 \
+    psutil==5.9.6 \
+    cachetools==5.3.2 \
+    pydantic==2.5.0
+
+# Copy application code
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p logs models data
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV MODEL_SERVING_CONFIG=/app/config/model_serving_config.yaml
+
+# Expose ports
+EXPOSE 8000 9090
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Run the application
+CMD ["python", "-m", "uvicorn", "core.model_serving_pipeline:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
