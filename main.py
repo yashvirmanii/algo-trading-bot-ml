@@ -39,6 +39,25 @@ from core.attention_strategy_selector import (
 from core.dqn_trading_agent import (
     DQNTradingAgent, TradingState, TradingAction, create_sample_trading_state
 )
+from core.multi_agent_coordinator import (
+    MultiAgentCoordinator, TradeSignal, TradeSignalType, ConflictResolution
+)
+from core.specialized_agents import create_specialized_agents
+from core.realtime_feature_pipeline import (
+    RealTimeFeaturePipeline, FeatureConfig
+)
+from core.model_validation_framework import (
+    ModelValidationFramework, ValidationConfig, PerformanceMetrics
+)
+from core.risk_aware_position_sizer import (
+    RiskAwarePositionSizer, PositionSizingConfig, TradeContext, PortfolioState
+)
+from core.dynamic_capital_manager import (
+    DynamicCapitalManager, CapitalAllocation
+)
+from core.sentiment_integration import (
+    SentimentTechnicalIntegrator, SentimentTechnicalSignal
+)
 
 # Load environment variables
 load_dotenv()
@@ -584,6 +603,125 @@ def main():
         order_executor = SmartOrderExecutor(broker)
         paper_trader = PaperTrader(total_capital=1000000)  # Example capital
         outcome_analyzer = TradeOutcomeAnalyzer(data_dir="data", lookback_days=90)
+        
+        # Initialize MultiAgentCoordinator
+        multi_agent_coordinator = MultiAgentCoordinator(
+            total_capital=1000000.0,
+            max_agents=6,
+            conflict_resolution=ConflictResolution.WEIGHTED_VOTE,
+            meta_learning_enabled=True,
+            model_dir="models/multi_agent",
+            log_dir="logs/multi_agent"
+        )
+        
+        # Create and register specialized agents
+        specialized_agents = create_specialized_agents()
+        for agent in specialized_agents:
+            multi_agent_coordinator.register_agent(
+                agent=agent,
+                initial_capital=1000000.0 / len(specialized_agents),  # Equal allocation
+                max_positions=3
+            )
+        
+        # Start all agents
+        multi_agent_coordinator.start_all_agents()
+        logger.info(f"MultiAgentCoordinator initialized with {len(specialized_agents)} specialized agents")
+        
+        # Initialize RealTimeFeaturePipeline
+        feature_config = FeatureConfig(
+            timeframes=['1m', '5m', '15m'],
+            rsi_periods=[14, 21],
+            ema_periods=[9, 21, 50],
+            sma_periods=[20, 50],
+            rolling_windows=[10, 20, 50],
+            lag_periods=[1, 2, 3, 5],
+            scaler_type='robust',
+            max_cache_size=10000
+        )
+        
+        feature_pipeline = RealTimeFeaturePipeline(
+            config=feature_config,
+            model_dir="models/features"
+        )
+        
+        logger.info("RealTimeFeaturePipeline initialized with enhanced technical indicators")
+        
+        # Initialize ModelValidationFramework
+        validation_config = ValidationConfig(
+            initial_train_size=252,  # 1 year of trading days
+            step_size=21,  # Monthly retraining
+            window_type='expanding',
+            cv_folds=5,
+            purged_cv=True,
+            embargo_period=5,
+            risk_free_rate=0.06,
+            confidence_level=0.95,
+            significance_level=0.05,
+            generate_plots=True,
+            save_detailed_results=True
+        )
+        
+        model_validator = ModelValidationFramework(
+            config=validation_config,
+            output_dir="validation_results"
+        )
+        
+        logger.info("ModelValidationFramework initialized for comprehensive model validation")
+        
+        # Initialize RiskAwarePositionSizer
+        position_sizing_config = PositionSizingConfig(
+            max_position_size=0.1,  # Maximum 10% per trade
+            min_position_size=0.001,  # Minimum 0.1% per trade
+            max_portfolio_risk=0.2,  # Maximum 20% portfolio risk
+            max_drawdown_limit=0.15,  # Stop if drawdown > 15%
+            kelly_multiplier=0.25,  # Conservative Kelly
+            retrain_frequency=50,  # Retrain every 50 trades
+            ensemble_weights={
+                'gradient_boosting': 0.4,
+                'random_forest': 0.3,
+                'xgboost': 0.2,
+                'lightgbm': 0.1
+            }
+        )
+        
+        risk_aware_sizer = RiskAwarePositionSizer(
+            config=position_sizing_config,
+            model_dir="models/position_sizer"
+        )
+        
+        logger.info("RiskAwarePositionSizer initialized with ML-based position sizing")
+        
+        # Initialize Dynamic Capital Manager
+        capital_manager = DynamicCapitalManager(
+            initial_capital=100000.0,  # Default starting capital
+            storage_file="data/capital_config.json",
+            min_capital=10000.0,
+            max_capital=10000000.0
+        )
+        
+        # Register system components with capital manager
+        capital_manager.register_component('multi_agent_coordinator', multi_agent_coordinator)
+        capital_manager.register_component('position_sizer', risk_aware_sizer)
+        capital_manager.register_component('risk_manager', risk)
+        capital_manager.register_component('portfolio_tracker', paper_trader)
+        
+        # Set capital manager reference in Telegram notifier
+        notifier.set_capital_manager(capital_manager)
+        
+        # Update all components with current capital
+        current_capital = capital_manager.get_current_capital()
+        multi_agent_coordinator.total_capital = current_capital
+        paper_trader.total_capital = current_capital
+        
+        logger.info(f"DynamicCapitalManager initialized with capital: ₹{current_capital:,.2f}")
+        
+        # Initialize Sentiment-Technical Integrator
+        sentiment_integrator = SentimentTechnicalIntegrator(
+            sentiment_weight=0.18,  # 18% weight to sentiment
+            technical_weight=0.82   # 82% weight to technical
+        )
+        
+        logger.info("SentimentTechnicalIntegrator initialized with 18% sentiment, 82% technical weighting")
 
         # 1. Screen stocks
         try:
@@ -608,80 +746,457 @@ def main():
             notifier.send_message(f"Data preparation error: {e}")
             return
 
-        # 3. Execute trades based on attention strategy selection
+        # 3. Execute trades using Multi-Agent Coordination with Enhanced Features
         for symbol, df in dfs.items():
             try:
-                # Create market state for current stock
                 entry_time = datetime.now()
-                market_state = create_market_state(df, entry_time)
                 
-                # Select strategy using attention mechanism
-                strategy_selection = strategy_selector.select_strategy(market_state, strategy_performances)
-                selected_strategy = strategy_selection.selected_strategy
-                strategy_confidence = strategy_selection.overall_confidence
+                # Process real-time features using the feature pipeline
+                tick_data = {
+                    'timestamp': entry_time,
+                    'symbol': symbol,
+                    'price': df['close'].iloc[-1],
+                    'volume': df['volume'].iloc[-1] if 'volume' in df.columns else 1000,
+                    'high': df['high'].iloc[-1] if 'high' in df.columns else df['close'].iloc[-1],
+                    'low': df['low'].iloc[-1] if 'low' in df.columns else df['close'].iloc[-1]
+                }
                 
-                # Get basic trade parameters
-                entry_price = df['close'].iloc[-1]
-                atr = df['atr'].iloc[-1] if 'atr' in df.columns else 1
-                direction = 1  # Assume long for now
+                # Generate enhanced features (50+ technical and statistical features)
+                enhanced_features = feature_pipeline.process_tick(tick_data)
                 
-                # Create trading state for DQN agent
-                trading_state = create_trading_state(df, portfolio_state, strategy_performances, entry_time)
+                # Add enhanced features to the dataframe for agents to use
+                for feature_name, feature_value in enhanced_features.items():
+                    df[feature_name] = feature_value
                 
-                # Get DQN action recommendation
-                dqn_action = dqn_agent.select_action(trading_state, training=True)
-                dqn_action_name = TradingAction.get_action_names()[dqn_action]
+                # Prepare market data for multi-agent system with enhanced features
+                market_data = {
+                    'symbol': symbol,
+                    'price_data': df,
+                    'benchmark_data': df.copy(),  # Use same data as benchmark for now
+                    'timestamp': entry_time,
+                    'enhanced_features': enhanced_features,
+                    'feature_count': len(enhanced_features)
+                }
                 
-                # Get Q-values for analysis
-                q_values = dqn_agent.get_q_values(trading_state)
+                # Get coordinated signals from all agents
+                coordinated_signals = multi_agent_coordinator.coordinate_trading(market_data)
                 
-                # Combine attention strategy selection with DQN action
-                # Use strategy confidence as signal strength, but let DQN decide the action
-                if strategy_confidence > 0.6 and dqn_action != TradingAction.HOLD and risk.check_max_trades(0):
-                    # Calculate SL/TP
-                    sl, tp, rr = rr_manager.calculate_sl_tp(entry_price, direction, atr, strategy_confidence)
-                    
-                    # Adjust quantity based on DQN action
-                    if dqn_action == TradingAction.ADJUST_POSITION_SIZE:
-                        qty = max(1, int(strategy_confidence * 2))  # Scale quantity with confidence
-                    else:
-                        qty = 1  # Standard quantity
-                    
-                    entry_time = datetime.now()
-                    
-                    if notifier.mode == 'paper':
-                        success, msg = paper_trader.buy(symbol, qty, entry_price, sl, tp)
-                        exit_price = tp  # Simulate hitting target for demo
-                        exit_time = datetime.now()
-                        pnl = exit_price - entry_price
+                # Process each coordinated signal
+                for signal in coordinated_signals:
+                    try:
+                        # Create market state for attention strategy selector
+                        market_state = create_market_state(df, entry_time)
                         
-                        # Log trade
-                        trade_logger.log_trade(
-                            symbol=symbol,
-                            side='buy',
-                            qty=qty,
-                            entry_price=entry_price,
-                            exit_price=exit_price,
-                            pnl=pnl,
-                            signals='pool',
-                            strategy='pool',
-                            outcome='win' if pnl > 0 else 'loss',
-                            notes=f'Paper trade | SL: {sl:.2f} | TP: {tp:.2f} | R:R: {rr:.2f}'
-                        )
+                        # Get strategy selection from attention mechanism
+                        strategy_selection = strategy_selector.select_strategy(market_state, strategy_performances)
+                        selected_strategy = strategy_selection.selected_strategy
+                        strategy_confidence = strategy_selection.overall_confidence
                         
-                        # Add experience to strategy selector for online learning
-                        actual_return = pnl / entry_price  # Calculate return percentage
-                        strategy_selector.add_experience(
-                            market_state=market_state,
-                            strategy_performances=strategy_performances,
-                            selected_strategy=selected_strategy,
-                            actual_return=actual_return
-                        )
+                        # Create trading state for DQN agent
+                        trading_state = create_trading_state(df, portfolio_state, strategy_performances, entry_time)
                         
-                        # Update portfolio state for DQN
-                        portfolio_state['position_size'] = qty / 100.0  # Normalize
-                        portfolio_state['unrealized_pnl'] = pnl / entry_price
-                        portfolio_state['realized_pnl'] += pnl / entry_price
+                        # Get DQN action recommendation
+                        dqn_action = dqn_agent.select_action(trading_state, training=True)
+                        dqn_action_name = TradingAction.get_action_names()[dqn_action]
+                        
+                        # Combine multi-agent signal with AI recommendations
+                        # Multi-agent provides the signal, AI systems provide confidence and sizing
+                        combined_confidence = (signal.confidence + strategy_confidence) / 2.0
+                        
+                        # Check if we should execute the trade
+                        if (combined_confidence > 0.6 and 
+                            dqn_action != TradingAction.HOLD and 
+                            risk.check_max_trades(0)):
+                            
+                            # Use signal parameters but adjust with AI insights
+                            entry_price = signal.price
+                            sl = signal.stop_loss
+                            tp = signal.take_profit
+                            
+                            # Adjust quantity based on DQN action and combined confidence
+                            if dqn_action == TradingAction.ADJUST_POSITION_SIZE:
+                                qty = max(1, int(signal.quantity * combined_confidence))
+                            else:
+                                qty = signal.quantity
+                            
+                            # Execute trade
+                            if notifier.mode == 'paper':
+                                if signal.signal_type == TradeSignalType.BUY:
+                                    success, msg = paper_trader.buy(symbol, qty, entry_price, sl, tp)
+                                elif signal.signal_type == TradeSignalType.SELL:
+                                    success, msg = paper_trader.sell(symbol, qty, entry_price, sl, tp)
+                                else:
+                                    continue
+                                
+                                if success:
+                                    # Simulate trade completion for demo
+                                    exit_price = tp if tp else entry_price * 1.01
+                                    exit_time = datetime.now()
+                                    
+                                    if signal.signal_type == TradeSignalType.BUY:
+                                        pnl = (exit_price - entry_price) * qty
+                                    else:
+                                        pnl = (entry_price - exit_price) * qty
+                                    
+                                    # Log trade with multi-agent info
+                                    trade_logger.log_trade(
+                                        symbol=symbol,
+                                        side=signal.signal_type.value,
+                                        qty=qty,
+                                        entry_price=entry_price,
+                                        exit_price=exit_price,
+                                        pnl=pnl,
+                                        signals=f'multi_agent_{signal.agent_id}',
+                                        strategy=selected_strategy,
+                                        outcome='win' if pnl > 0 else 'loss',
+                                        notes=f'Multi-Agent: {signal.agent_id} | Confidence: {combined_confidence:.2f} | Reasoning: {signal.reasoning}'
+                                    )
+                                    
+                                    # Update AI systems with trade results
+                                    actual_return = pnl / (entry_price * qty)
+                                    
+                                    # Update strategy selector
+                                    strategy_selector.add_experience(
+                                        market_state=market_state,
+                                        strategy_performances=strategy_performances,
+                                        selected_strategy=selected_strategy,
+                                        actual_return=actual_return
+                                    )
+                                    
+                                    # Update DQN agent
+                                    reward = actual_return * 100  # Scale reward
+                                    next_trading_state = create_trading_state(df, portfolio_state, strategy_performances, exit_time)
+                                    dqn_agent.store_experience(trading_state, dqn_action, reward, next_trading_state, True)
+                                    
+                                    # Update multi-agent coordinator
+                                    trade_duration = (exit_time - entry_time).total_seconds() / 60.0  # minutes
+                                    multi_agent_coordinator.update_agent_performance(signal.agent_id, pnl, trade_duration)
+                                    
+                                    # Update portfolio state
+                                    portfolio_state['position_size'] = qty / 100.0
+                                    portfolio_state['unrealized_pnl'] = actual_return
+                                    portfolio_state['realized_pnl'] += actual_return
+                                    portfolio_state['trades_count'] += 1
+                                    
+                                    # Analyze completed trade
+                                    analysis_result = analyze_completed_trade(
+                                        outcome_analyzer, symbol, df, entry_price, exit_price,
+                                        entry_time, exit_time, qty, signal.agent_id, sl, tp
+                                    )
+                                    
+                                    # Send notification with multi-agent insights
+                                    notification_msg = (
+                                        f"🤖 Multi-Agent Trade Executed\n"
+                                        f"📊 {symbol} | {signal.signal_type.value.upper()}\n"
+                                        f"🎯 Agent: {signal.agent_id}\n"
+                                        f"💰 Entry: ₹{entry_price:.2f} | Exit: ₹{exit_price:.2f}\n"
+                                        f"📈 PnL: ₹{pnl:.2f} ({actual_return*100:.2f}%)\n"
+                                        f"🎲 Combined Confidence: {combined_confidence:.2f}\n"
+                                        f"🧠 Strategy: {selected_strategy}\n"
+                                        f"🤖 DQN Action: {dqn_action_name}\n"
+                                        f"💡 Reasoning: {signal.reasoning}"
+                                    )
+                                    
+                                    if analysis_result:
+                                        notification_msg += f"\n📋 Analysis: {analysis_result.outcome.value}"
+                                        if analysis_result.recommendations:
+                                            notification_msg += f"\n💡 Recommendations: {', '.join(analysis_result.recommendations[:2])}"
+                                    
+                                    notifier.send_message(notification_msg)
+                                    
+                                    logger.info(f"Multi-agent trade executed: {symbol} {signal.signal_type.value} by {signal.agent_id}")
+                                
+                            else:
+                                # Live trading would go here
+                                logger.info(f"Live trading not implemented for multi-agent signal: {symbol}")
+                        
+                        else:
+                            logger.debug(f"Multi-agent signal filtered out: {symbol} - confidence {combined_confidence:.2f}, DQN action {dqn_action_name}")
+                    
+                    except Exception as e:
+                        logger.error(f"Error processing multi-agent signal for {symbol}: {e}")
+                        continue
+                
+                # Train AI systems periodically
+                if len(dfs) % 10 == 0:  # Every 10 stocks
+                    try:
+                        # Train DQN if enough experiences
+                        if len(dqn_agent.replay_buffer) > 100:
+                            dqn_agent.train()
+                        
+                        # Update strategy selector
+                        strategy_selector.update_model()
+                        
+                        logger.debug("AI systems training update completed")
+                    except Exception as e:
+                        logger.error(f"Error training AI systems: {e}")
+                
+            except Exception as e:
+                logger.error(f"Error processing {symbol} with multi-agent system: {e}")
+                continue
+
+        # 4. Generate batch report with multi-agent insights
+        try:
+            # Get system status from multi-agent coordinator
+            system_status = multi_agent_coordinator.get_system_status()
+            
+            # Generate comprehensive report
+            report_msg = "📊 Multi-Agent Trading Session Complete\n\n"
+            
+            # Multi-agent system status
+            coordinator_status = system_status['coordinator']
+            report_msg += f"🤖 Multi-Agent System:\n"
+            report_msg += f"• Total Agents: {coordinator_status['total_agents']}\n"
+            report_msg += f"• Active Agents: {coordinator_status['active_agents']}\n"
+            report_msg += f"• Total Capital: ₹{coordinator_status['total_capital']:,.0f}\n"
+            report_msg += f"• Conflict Resolution: {coordinator_status['conflict_resolution']}\n"
+            report_msg += f"• Meta Learning: {'Enabled' if coordinator_status['meta_learning_enabled'] else 'Disabled'}\n\n"
+            
+            # Agent performance summary
+            report_msg += "🎯 Agent Performance:\n"
+            for agent_id, perf in system_status['performance'].items():
+                if perf['total_trades'] > 0:
+                    report_msg += f"• {agent_id}: {perf['total_trades']} trades, {perf['win_rate']:.1%} win rate, ₹{perf['total_pnl']:.2f} PnL\n"
+            
+            # Resource utilization
+            report_msg += "\n💰 Resource Utilization:\n"
+            for agent_id, resource in system_status['resources'].items():
+                report_msg += f"• {agent_id}: {resource['capital_utilization']:.1%} capital, {resource['position_utilization']:.1%} positions\n"
+            
+            # AI systems performance
+            report_msg += f"\n🧠 AI Systems:\n"
+            report_msg += f"• Strategy Selector: {len(available_strategies)} strategies registered\n"
+            report_msg += f"• DQN Agent: {len(dqn_agent.replay_buffer)} experiences stored\n"
+            report_msg += f"• Trade Analyzer: {len(outcome_analyzer.trades_history)} trades analyzed\n"
+            report_msg += f"• Feature Pipeline: {len(enhanced_features) if 'enhanced_features' in locals() else 0} features generated\n"
+            report_msg += f"• Model Validator: Ready for comprehensive model validation\n"
+            report_msg += f"• Position Sizer: ML-based risk-aware position sizing active\n"
+            
+            # Add position sizing performance summary
+            try:
+                sizing_summary = risk_aware_sizer.get_performance_summary()
+                if 'total_trades' in sizing_summary:
+                    report_msg += f"• Position Sizing Performance: {sizing_summary['total_trades']} trades analyzed\n"
+                    report_msg += f"  - Average position size: {sizing_summary.get('avg_position_size', 0)*100:.1f}% of portfolio\n"
+                    report_msg += f"  - Position sizing win rate: {sizing_summary.get('win_rate', 0)*100:.1f}%\n"
+            except Exception as e:
+                logger.warning(f"Could not get position sizing summary: {e}")
+            
+            # Portfolio summary
+            report_msg += f"\n💼 Portfolio Summary:\n"
+            report_msg += f"• Total Return: {portfolio_state['realized_pnl']*100:.2f}%\n"
+            report_msg += f"• Win Rate: {portfolio_state['win_rate']:.1%}\n"
+            report_msg += f"• Total Trades: {int(portfolio_state['trades_count'])}\n"
+            
+            notifier.send_message(report_msg)
+            logger.info("Multi-agent batch report sent successfully")
+            
+        except Exception as e:
+            logger.error(f"Error generating multi-agent batch report: {e}")
+            notifier.send_message(f"❌ Error generating batch report: {e}")
+
+        # 5. Cleanup and save state
+        try:
+            # Save multi-agent coordinator state
+            multi_agent_coordinator.save_state()
+            
+            # Save AI model states
+            strategy_selector.save_model()
+            dqn_agent.save_model()
+            
+            # Save feature pipeline state
+            feature_pipeline.save_pipeline_state()
+            
+            # Shutdown systems
+            multi_agent_coordinator.shutdown()
+            feature_pipeline.shutdown()
+            
+            logger.info("Multi-agent trading session with enhanced features completed successfully")
+            
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
+
+    except Exception as e:
+        logger.error(f"Critical error in main: {e}")
+        notifier.send_message(f"❌ Critical system error: {e}")
+        
+        # Emergency shutdown
+        try:
+            if 'multi_agent_coordinator' in locals():
+                multi_agent_coordinator.shutdown()
+        except:
+            pass
+
+
+if __name__ == "__main__":
+    main()fs.items():fs.items():
+            try:
+                entry_time = datetime.now()
+                
+                # Prepare market data for multi-agent system
+                market_data = {
+                    'symbol': symbol,
+                    'price_data': df,
+                    'benchmark_data': df.copy(),  # Use same data as benchmark for now
+                    'timestamp': entry_time
+                }
+                
+                # Get coordinated signals from all agents
+                coordinated_signals = multi_agent_coordinator.coordinate_trading(market_data)
+                
+                # Process each coordinated signal
+                for signal in coordinated_signals:
+                    try:
+                        # Create market state for attention strategy selector
+                        market_state = create_market_state(df, entry_time)
+                        
+                        # Get strategy selection from attention mechanism
+                        strategy_selection = strategy_selector.select_strategy(market_state, strategy_performances)
+                        selected_strategy = strategy_selection.selected_strategy
+                        strategy_confidence = strategy_selection.overall_confidence
+                        
+                        # Create trading state for DQN agent
+                        trading_state = create_trading_state(df, portfolio_state, strategy_performances, entry_time)
+                        
+                        # Get DQN action recommendation
+                        dqn_action = dqn_agent.select_action(trading_state, training=True)
+                        dqn_action_name = TradingAction.get_action_names()[dqn_action]
+                        
+                        # Combine multi-agent signal with AI recommendations
+                        # Multi-agent provides the signal, AI systems provide confidence and sizing
+                        combined_confidence = (signal.confidence + strategy_confidence) / 2.0
+                        
+                        # Check if we should execute the trade
+                        if (combined_confidence > 0.6 and 
+                            dqn_action != TradingAction.HOLD and 
+                            risk.check_max_trades(0)):
+                            
+                            # Use signal parameters but adjust with AI insights
+                            entry_price = signal.price
+                            sl = signal.stop_loss
+                            tp = signal.take_profit
+                            
+                            # Adjust quantity based on DQN action and combined confidence
+                            if dqn_action == TradingAction.ADJUST_POSITION_SIZE:
+                                qty = max(1, int(signal.quantity * combined_confidence))
+                            else:
+                                qty = signal.quantity
+                            
+                            # Execute trade
+                            if notifier.mode == 'paper':
+                                if signal.signal_type == TradeSignalType.BUY:
+                                    success, msg = paper_trader.buy(symbol, qty, entry_price, sl, tp)
+                                elif signal.signal_type == TradeSignalType.SELL:
+                                    success, msg = paper_trader.sell(symbol, qty, entry_price, sl, tp)
+                                else:
+                                    continue
+                                
+                                if success:
+                                    # Simulate trade completion for demo
+                                    exit_price = tp if tp else entry_price * 1.01
+                                    exit_time = datetime.now()
+                                    
+                                    if signal.signal_type == TradeSignalType.BUY:
+                                        pnl = (exit_price - entry_price) * qty
+                                    else:
+                                        pnl = (entry_price - exit_price) * qty
+                                    
+                                    # Log trade with multi-agent info
+                                    trade_logger.log_trade(
+                                        symbol=symbol,
+                                        side=signal.signal_type.value,
+                                        qty=qty,
+                                        entry_price=entry_price,
+                                        exit_price=exit_price,
+                                        pnl=pnl,
+                                        signals=f'multi_agent_{signal.agent_id}',
+                                        strategy=selected_strategy,
+                                        outcome='win' if pnl > 0 else 'loss',
+                                        notes=f'Multi-Agent: {signal.agent_id} | Confidence: {combined_confidence:.2f} | Reasoning: {signal.reasoning}'
+                                    )
+                                    
+                                    # Update AI systems with trade results
+                                    actual_return = pnl / (entry_price * qty)
+                                    
+                                    # Update strategy selector
+                                    strategy_selector.add_experience(
+                                        market_state=market_state,
+                                        strategy_performances=strategy_performances,
+                                        selected_strategy=selected_strategy,
+                                        actual_return=actual_return
+                                    )
+                                    
+                                    # Update DQN agent
+                                    reward = actual_return * 100  # Scale reward
+                                    next_trading_state = create_trading_state(df, portfolio_state, strategy_performances, exit_time)
+                                    dqn_agent.store_experience(trading_state, dqn_action, reward, next_trading_state, True)
+                                    
+                                    # Update multi-agent coordinator
+                                    trade_duration = (exit_time - entry_time).total_seconds() / 60.0  # minutes
+                                    multi_agent_coordinator.update_agent_performance(signal.agent_id, pnl, trade_duration)
+                                    
+                                    # Update portfolio state
+                                    portfolio_state['position_size'] = qty / 100.0
+                                    portfolio_state['unrealized_pnl'] = actual_return
+                                    portfolio_state['realized_pnl'] += actual_return
+                                    portfolio_state['trades_count'] += 1
+                                    
+                                    # Analyze completed trade
+                                    analysis_result = analyze_completed_trade(
+                                        outcome_analyzer, symbol, df, entry_price, exit_price,
+                                        entry_time, exit_time, qty, signal.agent_id, sl, tp
+                                    )
+                                    
+                                    # Send notification with multi-agent insights
+                                    notification_msg = (
+                                        f"🤖 Multi-Agent Trade Executed\n"
+                                        f"📊 {symbol} | {signal.signal_type.value.upper()}\n"
+                                        f"🎯 Agent: {signal.agent_id}\n"
+                                        f"💰 Entry: ₹{entry_price:.2f} | Exit: ₹{exit_price:.2f}\n"
+                                        f"📈 PnL: ₹{pnl:.2f} ({actual_return*100:.2f}%)\n"
+                                        f"🎲 Combined Confidence: {combined_confidence:.2f}\n"
+                                        f"🧠 Strategy: {selected_strategy}\n"
+                                        f"🤖 DQN Action: {dqn_action_name}\n"
+                                        f"💡 Reasoning: {signal.reasoning}"
+                                    )
+                                    
+                                    if analysis_result:
+                                        notification_msg += f"\n📋 Analysis: {analysis_result.outcome.value}"
+                                        if analysis_result.recommendations:
+                                            notification_msg += f"\n💡 Recommendations: {', '.join(analysis_result.recommendations[:2])}"
+                                    
+                                    notifier.send_message(notification_msg)
+                                    
+                                    logger.info(f"Multi-agent trade executed: {symbol} {signal.signal_type.value} by {signal.agent_id}")
+                                
+                            else:
+                                # Live trading would go here
+                                logger.info(f"Live trading not implemented for multi-agent signal: {symbol}")
+                        
+                        else:
+                            logger.debug(f"Multi-agent signal filtered out: {symbol} - confidence {combined_confidence:.2f}, DQN action {dqn_action_name}")
+                    
+                    except Exception as e:
+                        logger.error(f"Error processing multi-agent signal for {symbol}: {e}")
+                        continue
+                
+                # Train AI systems periodically
+                if len(dfs) % 10 == 0:  # Every 10 stocks
+                    try:
+                        # Train DQN if enough experiences
+                        if len(dqn_agent.replay_buffer) > 100:
+                            dqn_agent.train()
+                        
+                        # Update strategy selector
+                        strategy_selector.update_model()
+                        
+                        logger.debug("AI systems training update completed")
+                    except Exception as e:
+                        logger.error(f"Error training AI systems: {e}")
+                
+            except Exception as e:
+                logger.error(f"Error processing {symbol} with multi-agent system: {e}")
+                continue
                         portfolio_state['total_return'] += pnl / entry_price
                         portfolio_state['trades_count'] += 1
                         

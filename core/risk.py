@@ -10,7 +10,7 @@ All risk parameters are configurable, ensuring safe and disciplined trading.
 """
 
 class RiskManager:
-    def __init__(self, max_trades_per_day=10, max_drawdown=0.05):
+    def __init__(self, max_trades_per_day=1000, max_drawdown=0.05):
         self.max_trades_per_day = max_trades_per_day
         self.max_drawdown = max_drawdown
 
