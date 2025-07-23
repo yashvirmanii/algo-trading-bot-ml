@@ -1,0 +1,190 @@
+# Intraday Trading System Configuration
+# Optimized for 10-15 minute trades with tight risk management
+
+# Trading Parameters
+trading:
+  max_hold_time_minutes: 15  # Maximum 15 minutes per trade
+  min_hold_time_minutes: 2   # Minimum 2 minutes per trade
+  max_daily_trades: 50       # Maximum trades per day
+  trading_hours:
+    start: "09:15"           # Market open
+    lunch_break_start: "11:30"
+    lunch_break_end: "13:00"
+    end: "15:15"             # Stop trading 15 min before close
+  
+  # Focus periods (highest volume/volatility)
+  focus_periods:
+    - start: "09:15"
+      end: "10:30"
+      description: "Opening hour - highest volatility"
+    - start: "14:30"
+      end: "15:15"
+      description: "Closing period - final moves"
+
+# Risk Management (Ultra-tight for intraday)
+risk_management:
+  max_position_risk: 0.015   # 1.5% max risk per trade
+  max_portfolio_risk: 0.05   # 5% max total portfolio risk
+  daily_loss_limit: 0.03     # 3% daily loss limit (hard stop)
+  
+  stop_loss:
+    max_percentage: 0.008    # 0.8% maximum stop loss
+    default_percentage: 0.005 # 0.5% default stop loss
+    time_based: true         # Exit after max hold time
+  
+  take_profit:
+    target_ratio: 1.5        # 1.5:1 reward:risk ratio
+    quick_profit: 0.005      # 0.5% quick profit target
+    extended_profit: 0.012   # 1.2% extended profit target
+
+# Position Sizing (Conservative for high frequency)
+position_sizing:
+  base_size: 0.02            # 2% base position size
+  max_size: 0.03             # 3% maximum position size
+  min_size: 0.005            # 0.5% minimum position size
+  
+  # Size adjustments based on conditions
+  adjustments:
+    high_confidence: 1.5     # 50% larger for high confidence
+    low_confidence: 0.7      # 30% smaller for low confidence
+    high_volatility: 0.8     # 20% smaller in high volatility
+    low_volume: 0.6          # 40% smaller in low volume
+
+# Stock Selection (Intraday-specific criteria)
+stock_selection:
+  min_price: 50              # Minimum ₹50 per share
+  max_price: 3000            # Maximum ₹3000 per share
+  min_volume: 200000         # Minimum 2 lakh shares daily volume
+  min_value_traded: 20000000 # Minimum ₹2 crore daily value
+  
+  volatility:
+    min_atr_percentage: 1.0  # Minimum 1% ATR
+    max_atr_percentage: 6.0  # Maximum 6% ATR
+    
+  liquidity:
+    min_volume_ratio: 1.5    # 1.5x average volume required
+    max_spread_percentage: 0.2 # Maximum 0.2% bid-ask spread
+
+# Technical Indicators (Intraday-focused)
+technical_indicators:
+  primary:
+    - name: "VWAP"
+      period: "intraday"
+      weight: 0.3
+    - name: "RSI"
+      period: 14
+      weight: 0.2
+    - name: "Volume_Ratio"
+      period: 20
+      weight: 0.25
+    - name: "Price_Momentum"
+      period: 5
+      weight: 0.25
+  
+  moving_averages:
+    fast: 5                  # 5-period MA
+    slow: 20                 # 20-period MA
+    
+  volume_analysis:
+    surge_threshold: 2.0     # 2x volume surge
+    average_period: 20       # 20-period volume average
+
+# Strategy Configuration
+strategies:
+  momentum_scalper:
+    enabled: true
+    weight: 0.25
+    min_momentum: 0.003      # 0.3% minimum momentum
+    volume_confirmation: 1.5  # 1.5x volume required
+    
+  breakout_hunter:
+    enabled: true
+    weight: 0.25
+    min_breakout: 0.005      # 0.5% minimum breakout
+    volume_confirmation: 2.0  # 2x volume required
+    
+  enhanced_scalper:
+    enabled: true
+    weight: 0.2
+    target_profit: 0.003     # 0.3% target profit
+    max_trades_per_hour: 6   # Maximum 6 trades per hour
+    
+  gap_trader:
+    enabled: true
+    weight: 0.15
+    min_gap: 0.005           # 0.5% minimum gap
+    max_gap: 0.05            # 5% maximum gap
+    trading_window: 30       # First 30 minutes only
+    
+  ma_crossover:
+    enabled: true
+    weight: 0.15
+    fast_ma: 5
+    slow_ma: 20
+    volume_confirmation: 1.2
+
+# Performance Targets
+performance_targets:
+  daily_return: 0.015        # 1.5% daily return target
+  win_rate: 0.65             # 65% win rate target
+  profit_factor: 1.8         # 1.8 profit factor target
+  max_drawdown: 0.05         # 5% maximum drawdown
+  sharpe_ratio: 2.0          # 2.0 Sharpe ratio target
+
+# Monitoring and Alerts
+monitoring:
+  real_time_updates: true
+  position_alerts: true
+  risk_alerts: true
+  performance_alerts: true
+  
+  alert_thresholds:
+    loss_per_trade: 0.01     # Alert if single trade loses >1%
+    daily_loss: 0.02         # Alert if daily loss >2%
+    consecutive_losses: 3     # Alert after 3 consecutive losses
+    low_win_rate: 0.5        # Alert if win rate <50%
+
+# Execution Settings
+execution:
+  order_type: "MARKET"       # Market orders for speed
+  slippage_tolerance: 0.001  # 0.1% slippage tolerance
+  timeout_seconds: 30        # 30 second order timeout
+  retry_attempts: 3          # 3 retry attempts
+  
+  # Pre-trade checks
+  pre_trade_checks:
+    - liquidity_check
+    - risk_limit_check
+    - position_limit_check
+    - time_window_check
+    - volume_confirmation
+
+# Logging and Data
+logging:
+  level: "INFO"
+  trade_logging: true
+  performance_logging: true
+  error_logging: true
+  
+  retention:
+    trade_data: 90           # 90 days
+    performance_data: 365    # 1 year
+    error_logs: 30           # 30 days
+
+# Emergency Controls
+emergency:
+  circuit_breaker:
+    enabled: true
+    daily_loss_limit: 0.05   # 5% daily loss triggers circuit breaker
+    consecutive_loss_limit: 5 # 5 consecutive losses triggers pause
+    
+  auto_shutdown:
+    enabled: true
+    conditions:
+      - daily_loss_exceeded
+      - system_error_critical
+      - market_hours_ended
+      
+  manual_override:
+    enabled: true
+    require_confirmation: true

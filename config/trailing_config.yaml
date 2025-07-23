@@ -1,0 +1,193 @@
+# Trailing Stop-Loss Configuration
+
+# WebSocket Configuration
+websocket:
+  # Zerodha API credentials (loaded from environment)
+  api_key: ${KITE_API_KEY}
+  access_token: ${KITE_ACCESS_TOKEN}
+  
+  # Connection settings
+  reconnect_attempts: 10
+  reconnect_delay: 1.0
+  max_reconnect_delay: 60.0
+  ping_interval: 30
+  ping_timeout: 10
+  
+  # Subscription settings
+  subscription_mode: "ltp"  # "ltp", "quote", "full"
+  max_subscriptions: 100
+
+# Trailing Stop-Loss Configuration
+trailing_stop:
+  # Algorithm type: "fixed_amount", "percentage", "atr_based", "hybrid"
+  trailing_type: "percentage"
+  
+  # Fixed amount trailing (in rupees)
+  fixed_trail_amount: 5.0
+  
+  # Percentage trailing
+  trail_percentage: 2.0  # 2% trailing stop
+  
+  # ATR-based trailing
+  atr_multiplier: 2.0    # 2x ATR for trailing distance
+  atr_period: 14         # ATR calculation period
+  
+  # Minimum profit before trailing starts
+  min_profit_to_trail: 1.0  # Minimum 1% profit
+  
+  # Maximum trail distance (safety limit)
+  max_trail_distance: 10.0  # Maximum 10% trail
+  
+  # Update frequency
+  update_frequency_seconds: 1.0
+  
+  # Volatility adjustment
+  volatility_adjustment: true
+  high_volatility_multiplier: 1.5
+  low_volatility_multiplier: 0.7
+
+# Position Monitoring Configuration
+position_monitor:
+  # Update intervals
+  position_update_interval: 1.0   # seconds
+  portfolio_update_interval: 5.0  # seconds
+  
+  # Risk management
+  max_portfolio_loss_percent: 5.0   # Stop all trading if portfolio down 5%
+  max_position_loss_percent: 10.0  # Individual position max loss
+  
+  # Execution settings
+  auto_execute_stops: true
+  execution_delay_seconds: 0.5  # Delay before executing stops
+  
+  # Logging and storage
+  log_all_ticks: false
+  save_position_history: true
+  history_file: "data/position_history.json"
+
+# Strategy-Specific Trailing Configurations
+strategy_configs:
+  # Breakout strategy - aggressive trailing
+  breakout:
+    trailing_type: "percentage"
+    trail_percentage: 1.5  # Tighter trailing for breakouts
+    min_profit_to_trail: 0.5
+    volatility_adjustment: true
+    
+  # Trend following - moderate trailing
+  trend_following:
+    trailing_type: "atr_based"
+    atr_multiplier: 2.5
+    min_profit_to_trail: 1.0
+    volatility_adjustment: true
+    
+  # Scalping - very tight trailing
+  scalping:
+    trailing_type: "fixed_amount"
+    fixed_trail_amount: 2.0
+    min_profit_to_trail: 0.25
+    volatility_adjustment: false
+    
+  # Swing trading - loose trailing
+  swing:
+    trailing_type: "percentage"
+    trail_percentage: 3.0
+    min_profit_to_trail: 2.0
+    volatility_adjustment: true
+
+# Market Condition Adjustments
+market_conditions:
+  # High volatility market (VIX > 25)
+  high_volatility:
+    trail_percentage_multiplier: 1.5
+    min_profit_multiplier: 1.2
+    execution_delay_multiplier: 2.0
+    
+  # Low volatility market (VIX < 15)
+  low_volatility:
+    trail_percentage_multiplier: 0.8
+    min_profit_multiplier: 0.8
+    execution_delay_multiplier: 0.5
+    
+  # Trending market
+  trending:
+    trail_percentage_multiplier: 0.9  # Tighter trailing in trends
+    min_profit_multiplier: 0.8
+    
+  # Sideways market
+  sideways:
+    trail_percentage_multiplier: 1.2  # Looser trailing in sideways
+    min_profit_multiplier: 1.1
+
+# Risk Management Rules
+risk_management:
+  # Portfolio level
+  max_total_exposure: 0.8  # Maximum 80% of capital exposed
+  max_positions: 10        # Maximum number of positions
+  
+  # Position level
+  max_position_size: 0.1   # Maximum 10% per position
+  min_position_size: 0.01  # Minimum 1% per position
+  
+  # Stop-loss rules
+  max_stop_loss_distance: 0.15  # Maximum 15% stop-loss
+  min_stop_loss_distance: 0.02  # Minimum 2% stop-loss
+  
+  # Take-profit rules
+  min_risk_reward_ratio: 1.5     # Minimum 1.5:1 risk-reward
+  max_risk_reward_ratio: 5.0     # Maximum 5:1 risk-reward
+
+# Notification Settings
+notifications:
+  # Telegram notifications
+  telegram_enabled: true
+  
+  # Events to notify
+  notify_on_trail_update: true
+  notify_on_stop_loss_hit: true
+  notify_on_take_profit_hit: true
+  notify_on_position_add: true
+  notify_on_position_remove: true
+  
+  # Notification frequency limits
+  max_trail_notifications_per_hour: 10
+  max_stop_notifications_per_hour: 20
+  
+  # Message templates
+  trail_update_template: "🔄 Trail Updated: {symbol} SL: ₹{old_sl:.2f} → ₹{new_sl:.2f} (Profit: {profit:.2f}%)"
+  stop_loss_template: "🛑 Stop Loss Hit: {symbol} at ₹{price:.2f} (Loss: {loss:.2f}%)"
+  take_profit_template: "🎯 Take Profit Hit: {symbol} at ₹{price:.2f} (Profit: {profit:.2f}%)"
+
+# Performance Monitoring
+monitoring:
+  # Metrics collection
+  collect_performance_metrics: true
+  metrics_update_interval: 60  # seconds
+  
+  # Performance thresholds
+  min_trail_efficiency: 0.7    # Minimum 70% of trails should be profitable
+  max_false_stop_rate: 0.2     # Maximum 20% false stops
+  
+  # Alerting
+  alert_on_poor_performance: true
+  performance_review_interval: 3600  # 1 hour
+  
+  # Data retention
+  keep_metrics_days: 30
+  archive_old_data: true
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  file: "logs/trailing_stops.log"
+  max_file_size_mb: 50
+  backup_count: 5
+  
+  # Detailed logging
+  log_tick_data: false
+  log_trail_calculations: true
+  log_execution_details: true
+  
+  # Performance logging
+  log_performance_metrics: true
+  performance_log_interval: 300  # 5 minutes

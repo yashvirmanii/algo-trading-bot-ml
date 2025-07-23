@@ -93,82 +93,112 @@ class BreakoutAgent(TradingAgent):
             return None
 
 
-class TrendFollowingAgent(TradingAgent):
-    """Trend following agent using multiple timeframe analysis"""
+class MomentumScalperAgent(TradingAgent):
+    """Intraday momentum scalper for quick 1-5 minute trades"""
     
-    def __init__(self, agent_id: str = "trend_following_agent"):
-        super().__init__(agent_id, "trend_following")
-        self.short_ma = 10
-        self.long_ma = 30
-        self.trend_strength_period = 14
+    def __init__(self, agent_id: str = "momentum_scalper_agent"):
+        super().__init__(agent_id, "momentum_scalper")
+        self.min_volume_ratio = 1.5  # Minimum 1.5x average volume
+        self.momentum_periods = [1, 3, 5]  # 1, 3, 5 minute momentum
+        self.max_hold_minutes = 15  # Maximum 15 minutes hold
     
     def generate_signal(self, market_data: Dict[str, Any]) -> Optional[TradeSignal]:
-        """Generate trend following signal"""
+        """Generate momentum scalping signal for intraday trading"""
         try:
             df = market_data.get('price_data')
             symbol = market_data.get('symbol', 'UNKNOWN')
+            current_time = market_data.get('current_time', datetime.now())
             
-            if df is None or len(df) < self.long_ma + 5:
+            if df is None or len(df) < 10:
                 return None
             
-            # Calculate moving averages
-            short_ma = df['close'].rolling(self.short_ma).mean()
-            long_ma = df['close'].rolling(self.long_ma).mean()
+            # Check if we're in trading hours (avoid lunch time)
+            hour = current_time.hour
+            minute = current_time.minute
+            
+            # Avoid lunch time (11:30 AM - 1:00 PM) and late afternoon (after 3:15 PM)
+            if (hour == 11 and minute >= 30) or (hour == 12) or (hour == 0) or (hour >= 15 and minute >= 15):
+                return None
             
             current_price = df['close'].iloc[-1]
-            current_short_ma = short_ma.iloc[-1]
-            current_long_ma = long_ma.iloc[-1]
+            current_volume = df['volume'].iloc[-1]
             
-            # Trend direction
-            trend_up = current_short_ma > current_long_ma
-            ma_distance = abs(current_short_ma - current_long_ma) / current_long_ma
+            # Volume confirmation - critical for intraday
+            avg_volume_10 = df['volume'].tail(10).mean()
+            volume_ratio = current_volume / avg_volume_10 if avg_volume_10 > 0 else 1.0
             
-            # Trend strength using ADX-like calculation
-            price_changes = df['close'].pct_change().abs()
-            trend_strength = price_changes.rolling(self.trend_strength_period).mean().iloc[-1]
+            if volume_ratio < self.min_volume_ratio:
+                return None  # Insufficient volume
             
-            # Volume confirmation
-            volume_ratio = df['volume'].iloc[-1] / df['volume'].rolling(20).mean().iloc[-1]
+            # Calculate short-term momentum
+            momentum_1m = df['close'].pct_change(1).iloc[-1] if len(df) > 1 else 0.0
+            momentum_3m = df['close'].pct_change(3).iloc[-1] if len(df) > 3 else 0.0
+            momentum_5m = df['close'].pct_change(5).iloc[-1] if len(df) > 5 else 0.0
             
-            # Price position relative to MAs
-            price_above_short = current_price > current_short_ma
-            price_above_long = current_price > current_long_ma
+            # VWAP calculation for intraday reference
+            vwap = (df['close'] * df['volume']).sum() / df['volume'].sum()
+            price_vs_vwap = (current_price - vwap) / vwap
             
-            # Calculate confidence
-            base_confidence = min(0.9, ma_distance * 50 + trend_strength * 10)
-            volume_boost = min(0.2, (volume_ratio - 1) * 0.1)
-            confidence = base_confidence + volume_boost
+            # Momentum consistency check
+            momentum_signals = [1 if m > 0.002 else -1 if m < -0.002 else 0 for m in [momentum_1m, momentum_3m, momentum_5m]]
+            momentum_consistency = abs(sum(momentum_signals)) / len(momentum_signals)
             
-            if trend_up and price_above_short and price_above_long and confidence > 0.6:
+            # Calculate confidence based on momentum and volume
+            momentum_strength = abs(momentum_1m) * 100  # Convert to percentage
+            volume_boost = min(0.3, (volume_ratio - 1.5) * 0.1)
+            base_confidence = min(0.8, momentum_strength * 20 + volume_boost)
+            
+            # Require strong momentum consistency for high confidence
+            if momentum_consistency < 0.67:  # At least 2/3 signals agree
+                base_confidence *= 0.5
+            
+            # Long signal
+            if (momentum_1m > 0.003 and momentum_3m > 0.001 and 
+                volume_ratio > self.min_volume_ratio and 
+                price_vs_vwap > -0.005 and  # Not too far below VWAP
+                base_confidence > 0.6):
+                
+                # Tight intraday stops and targets
+                stop_loss = current_price * 0.995  # 0.5% stop loss
+                take_profit = current_price * 1.008  # 0.8% target
+                
                 return TradeSignal(
                     agent_id=self.agent_id,
                     symbol=symbol,
                     signal_type=TradeSignalType.BUY,
-                    confidence=confidence,
-                    quantity=int(100 * confidence),
+                    confidence=base_confidence,
+                    quantity=int(200 * base_confidence),  # Larger size for scalping
                     price=current_price,
-                    stop_loss=current_long_ma * 0.98,
-                    take_profit=current_price * (1 + ma_distance * 2),
-                    reasoning=f"Strong uptrend: MA distance {ma_distance:.3f}, strength {trend_strength:.3f}"
+                    stop_loss=stop_loss,
+                    take_profit=take_profit,
+                    reasoning=f"Momentum scalp long: 1m={momentum_1m:.4f}, vol={volume_ratio:.1f}x, VWAP+{price_vs_vwap:.3f}"
                 )
             
-            elif not trend_up and not price_above_short and not price_above_long and confidence > 0.6:
+            # Short signal
+            elif (momentum_1m < -0.003 and momentum_3m < -0.001 and 
+                  volume_ratio > self.min_volume_ratio and 
+                  price_vs_vwap < 0.005 and  # Not too far above VWAP
+                  base_confidence > 0.6):
+                
+                stop_loss = current_price * 1.005  # 0.5% stop loss
+                take_profit = current_price * 0.992  # 0.8% target
+                
                 return TradeSignal(
                     agent_id=self.agent_id,
                     symbol=symbol,
                     signal_type=TradeSignalType.SELL,
-                    confidence=confidence,
-                    quantity=int(100 * confidence),
+                    confidence=base_confidence,
+                    quantity=int(200 * base_confidence),
                     price=current_price,
-                    stop_loss=current_long_ma * 1.02,
-                    take_profit=current_price * (1 - ma_distance * 2),
-                    reasoning=f"Strong downtrend: MA distance {ma_distance:.3f}, strength {trend_strength:.3f}"
+                    stop_loss=stop_loss,
+                    take_profit=take_profit,
+                    reasoning=f"Momentum scalp short: 1m={momentum_1m:.4f}, vol={volume_ratio:.1f}x, VWAP{price_vs_vwap:.3f}"
                 )
             
             return None
             
         except Exception as e:
-            logger.error(f"Error in trend following agent signal generation: {e}")
+            logger.error(f"Error in momentum scalper agent signal generation: {e}")
             return None
 
 
@@ -246,199 +276,247 @@ class ScalpingAgent(TradingAgent):
             return None
 
 
-class ArbitrageAgent(TradingAgent):
-    """Statistical arbitrage agent looking for price discrepancies"""
+class GapTradingAgent(TradingAgent):
+    """Gap trading agent for morning gap opportunities"""
     
-    def __init__(self, agent_id: str = "arbitrage_agent"):
-        super().__init__(agent_id, "arbitrage")
-        self.correlation_period = 30
-        self.zscore_threshold = 2.0
+    def __init__(self, agent_id: str = "gap_trading_agent"):
+        super().__init__(agent_id, "gap_trading")
+        self.min_gap_percentage = 0.5  # Minimum 0.5% gap
+        self.max_gap_percentage = 5.0  # Maximum 5% gap
+        self.gap_trading_window = 30  # First 30 minutes only
     
     def generate_signal(self, market_data: Dict[str, Any]) -> Optional[TradeSignal]:
-        """Generate arbitrage signal based on statistical relationships"""
+        """Generate gap trading signal for morning opportunities"""
         try:
             df = market_data.get('price_data')
             symbol = market_data.get('symbol', 'UNKNOWN')
-            benchmark_data = market_data.get('benchmark_data')  # Market index data
+            current_time = market_data.get('current_time', datetime.now())
             
-            if df is None or benchmark_data is None or len(df) < self.correlation_period:
+            if df is None or len(df) < 5:
                 return None
             
-            # Calculate price ratio to benchmark
-            stock_prices = df['close'].tail(self.correlation_period)
-            benchmark_prices = benchmark_data['close'].tail(self.correlation_period)
+            # Only trade gaps in first 30 minutes (9:15-9:45 AM)
+            hour = current_time.hour
+            minute = current_time.minute
             
-            if len(benchmark_prices) != len(stock_prices):
+            if not (hour == 9 and 15 <= minute <= 45):
+                return None  # Outside gap trading window
+            
+            # Get previous day's close and current open
+            if len(df) < 2:
                 return None
             
-            # Calculate price ratio
-            price_ratio = stock_prices / benchmark_prices
-            ratio_mean = price_ratio.mean()
-            ratio_std = price_ratio.std()
-            
-            if ratio_std == 0:
-                return None
-            
-            current_ratio = stock_prices.iloc[-1] / benchmark_prices.iloc[-1]
-            zscore = (current_ratio - ratio_mean) / ratio_std
-            
+            prev_close = df['close'].iloc[-2]  # Previous period close
+            current_open = df['open'].iloc[-1] if 'open' in df.columns else df['close'].iloc[-1]
             current_price = df['close'].iloc[-1]
+            current_volume = df['volume'].iloc[-1]
             
-            # Mean reversion arbitrage
-            if zscore > self.zscore_threshold:
-                # Stock is overpriced relative to benchmark
-                confidence = min(0.9, abs(zscore) / 4.0)
-                
-                return TradeSignal(
-                    agent_id=self.agent_id,
-                    symbol=symbol,
-                    signal_type=TradeSignalType.SELL,
-                    confidence=confidence,
-                    quantity=int(50 * confidence),
-                    price=current_price,
-                    stop_loss=current_price * 1.01,
-                    take_profit=current_price * (1 - 0.005 * abs(zscore)),
-                    reasoning=f"Statistical arbitrage: Z-score {zscore:.2f} (overpriced)"
-                )
+            # Calculate gap percentage
+            gap_percentage = ((current_open - prev_close) / prev_close) * 100
             
-            elif zscore < -self.zscore_threshold:
-                # Stock is underpriced relative to benchmark
-                confidence = min(0.9, abs(zscore) / 4.0)
-                
-                return TradeSignal(
-                    agent_id=self.agent_id,
-                    symbol=symbol,
-                    signal_type=TradeSignalType.BUY,
-                    confidence=confidence,
-                    quantity=int(50 * confidence),
-                    price=current_price,
-                    stop_loss=current_price * 0.99,
-                    take_profit=current_price * (1 + 0.005 * abs(zscore)),
-                    reasoning=f"Statistical arbitrage: Z-score {zscore:.2f} (underpriced)"
-                )
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error in arbitrage agent signal generation: {e}")
-            return None
-
-
-class VolatilityAgent(TradingAgent):
-    """Volatility-based trading agent"""
-    
-    def __init__(self, agent_id: str = "volatility_agent"):
-        super().__init__(agent_id, "volatility")
-        self.volatility_period = 20
-        self.volatility_threshold = 0.02
-    
-    def generate_signal(self, market_data: Dict[str, Any]) -> Optional[TradeSignal]:
-        """Generate volatility-based trading signal"""
-        try:
-            df = market_data.get('price_data')
-            symbol = market_data.get('symbol', 'UNKNOWN')
-            
-            if df is None or len(df) < self.volatility_period + 5:
+            # Check if gap is within tradeable range
+            if abs(gap_percentage) < self.min_gap_percentage or abs(gap_percentage) > self.max_gap_percentage:
                 return None
             
-            # Calculate realized volatility
-            returns = df['close'].pct_change()
-            current_vol = returns.rolling(self.volatility_period).std().iloc[-1]
-            vol_mean = returns.rolling(self.volatility_period * 2).std().mean()
+            # Volume confirmation
+            avg_volume = df['volume'].tail(10).mean()
+            volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1.0
             
-            if vol_mean == 0:
+            if volume_ratio < 1.2:  # Need at least 20% above average volume
                 return None
             
-            vol_ratio = current_vol / vol_mean
-            current_price = df['close'].iloc[-1]
+            # Calculate confidence based on gap size and volume
+            gap_strength = min(abs(gap_percentage) / 3.0, 1.0)  # Normalize to 0-1
+            volume_boost = min((volume_ratio - 1.0) * 0.3, 0.3)
+            confidence = min(0.85, gap_strength * 0.7 + volume_boost)
             
-            # ATR for position sizing
-            atr = df.get('atr', pd.Series([current_price * 0.02])).iloc[-1]
-            
-            # Volatility breakout strategy
-            if vol_ratio > 1.5 and current_vol > self.volatility_threshold:
-                # High volatility - expect continuation
-                recent_return = returns.iloc[-1]
-                confidence = min(0.85, (vol_ratio - 1) * 0.3 + abs(recent_return) * 10)
+            # Gap up - look for continuation or fade
+            if gap_percentage > self.min_gap_percentage:
+                # Check if price is holding above gap level
+                gap_hold_ratio = (current_price - prev_close) / (current_open - prev_close)
                 
-                if recent_return > 0:
+                if gap_hold_ratio > 0.7:  # Gap holding strong - continuation play
                     return TradeSignal(
                         agent_id=self.agent_id,
                         symbol=symbol,
                         signal_type=TradeSignalType.BUY,
                         confidence=confidence,
-                        quantity=max(50, int(100 / vol_ratio)),  # Smaller size in high vol
+                        quantity=int(150 * confidence),
                         price=current_price,
-                        stop_loss=current_price - atr * 2,
-                        take_profit=current_price + atr * 3,
-                        reasoning=f"Volatility breakout: vol ratio {vol_ratio:.2f}, recent return {recent_return:.3f}"
+                        stop_loss=current_price * 0.995,  # Tight 0.5% stop
+                        take_profit=current_price * (1 + gap_percentage * 0.01 * 0.5),  # Half gap size target
+                        reasoning=f"Gap up continuation: {gap_percentage:.2f}% gap, vol {volume_ratio:.1f}x, holding {gap_hold_ratio:.2f}"
                     )
-                else:
+                
+                elif gap_hold_ratio < 0.3:  # Gap fading - fade play
+                    return TradeSignal(
+                        agent_id=self.agent_id,
+                        symbol=symbol,
+                        signal_type=TradeSignalType.SELL,
+                        confidence=confidence * 0.8,  # Lower confidence for fade
+                        quantity=int(100 * confidence),
+                        price=current_price,
+                        stop_loss=current_open * 1.002,  # Stop above gap open
+                        take_profit=prev_close * 1.002,  # Target near previous close
+                        reasoning=f"Gap up fade: {gap_percentage:.2f}% gap fading, vol {volume_ratio:.1f}x"
+                    )
+            
+            # Gap down - look for continuation or bounce
+            elif gap_percentage < -self.min_gap_percentage:
+                gap_hold_ratio = (prev_close - current_price) / (prev_close - current_open)
+                
+                if gap_hold_ratio > 0.7:  # Gap down holding - continuation
                     return TradeSignal(
                         agent_id=self.agent_id,
                         symbol=symbol,
                         signal_type=TradeSignalType.SELL,
                         confidence=confidence,
-                        quantity=max(50, int(100 / vol_ratio)),
+                        quantity=int(150 * confidence),
                         price=current_price,
-                        stop_loss=current_price + atr * 2,
-                        take_profit=current_price - atr * 3,
-                        reasoning=f"Volatility breakout: vol ratio {vol_ratio:.2f}, recent return {recent_return:.3f}"
+                        stop_loss=current_price * 1.005,  # Tight 0.5% stop
+                        take_profit=current_price * (1 + gap_percentage * 0.01 * 0.5),  # Half gap size target
+                        reasoning=f"Gap down continuation: {gap_percentage:.2f}% gap, vol {volume_ratio:.1f}x, holding {gap_hold_ratio:.2f}"
                     )
-            
-            elif vol_ratio < 0.7 and current_vol < self.volatility_threshold:
-                # Low volatility - expect breakout
-                # Look for compression patterns
-                price_range = (df['high'].tail(10).max() - df['low'].tail(10).min()) / current_price
                 
-                if price_range < 0.02:  # Tight range
-                    # Wait for direction signal
-                    volume_ratio = df['volume'].iloc[-1] / df['volume'].rolling(20).mean().iloc[-1]
-                    
-                    if volume_ratio > 1.2:  # Volume expansion
-                        recent_return = returns.iloc[-1]
-                        confidence = min(0.75, (1 - vol_ratio) * 0.5 + volume_ratio * 0.2)
-                        
-                        if recent_return > 0.001:
-                            return TradeSignal(
-                                agent_id=self.agent_id,
-                                symbol=symbol,
-                                signal_type=TradeSignalType.BUY,
-                                confidence=confidence,
-                                quantity=150,  # Larger size in low vol
-                                price=current_price,
-                                stop_loss=current_price - atr,
-                                take_profit=current_price + atr * 2,
-                                reasoning=f"Low vol breakout: vol ratio {vol_ratio:.2f}, volume {volume_ratio:.1f}x"
-                            )
-                        elif recent_return < -0.001:
-                            return TradeSignal(
-                                agent_id=self.agent_id,
-                                symbol=symbol,
-                                signal_type=TradeSignalType.SELL,
-                                confidence=confidence,
-                                quantity=150,
-                                price=current_price,
-                                stop_loss=current_price + atr,
-                                take_profit=current_price - atr * 2,
-                                reasoning=f"Low vol breakout: vol ratio {vol_ratio:.2f}, volume {volume_ratio:.1f}x"
-                            )
+                elif gap_hold_ratio < 0.3:  # Gap filling - bounce play
+                    return TradeSignal(
+                        agent_id=self.agent_id,
+                        symbol=symbol,
+                        signal_type=TradeSignalType.BUY,
+                        confidence=confidence * 0.8,
+                        quantity=int(100 * confidence),
+                        price=current_price,
+                        stop_loss=current_open * 0.998,  # Stop below gap open
+                        take_profit=prev_close * 0.998,  # Target near previous close
+                        reasoning=f"Gap down bounce: {gap_percentage:.2f}% gap filling, vol {volume_ratio:.1f}x"
+                    )
             
             return None
             
         except Exception as e:
-            logger.error(f"Error in volatility agent signal generation: {e}")
+            logger.error(f"Error in gap trading agent signal generation: {e}")
+            return None
+
+
+class MACrossoverAgent(TradingAgent):
+    """Moving Average Crossover agent for intraday signals"""
+    
+    def __init__(self, agent_id: str = "ma_crossover_agent"):
+        super().__init__(agent_id, "ma_crossover")
+        self.fast_ma = 5  # 5-period MA for intraday
+        self.slow_ma = 20  # 20-period MA for intraday
+        self.min_volume_ratio = 1.2  # Minimum volume confirmation
+    
+    def generate_signal(self, market_data: Dict[str, Any]) -> Optional[TradeSignal]:
+        """Generate MA crossover signal for intraday trading"""
+        try:
+            df = market_data.get('price_data')
+            symbol = market_data.get('symbol', 'UNKNOWN')
+            current_time = market_data.get('current_time', datetime.now())
+            
+            if df is None or len(df) < self.slow_ma + 5:
+                return None
+            
+            # Check trading hours - avoid lunch and late afternoon
+            hour = current_time.hour
+            minute = current_time.minute
+            
+            if (hour == 11 and minute >= 30) or (hour == 12) or (hour == 0) or (hour >= 15 and minute >= 15):
+                return None
+            
+            # Calculate moving averages
+            fast_ma = df['close'].rolling(self.fast_ma).mean()
+            slow_ma = df['close'].rolling(self.slow_ma).mean()
+            
+            if fast_ma.isna().any() or slow_ma.isna().any():
+                return None
+            
+            current_price = df['close'].iloc[-1]
+            current_fast_ma = fast_ma.iloc[-1]
+            current_slow_ma = slow_ma.iloc[-1]
+            prev_fast_ma = fast_ma.iloc[-2]
+            prev_slow_ma = slow_ma.iloc[-2]
+            
+            # Volume confirmation
+            current_volume = df['volume'].iloc[-1]
+            avg_volume = df['volume'].rolling(20).mean().iloc[-1]
+            volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1.0
+            
+            if volume_ratio < self.min_volume_ratio:
+                return None
+            
+            # VWAP for additional confirmation
+            vwap = (df['close'] * df['volume']).sum() / df['volume'].sum()
+            price_vs_vwap = (current_price - vwap) / vwap
+            
+            # Detect crossover
+            bullish_crossover = (prev_fast_ma <= prev_slow_ma and current_fast_ma > current_slow_ma)
+            bearish_crossover = (prev_fast_ma >= prev_slow_ma and current_fast_ma < current_slow_ma)
+            
+            # Calculate MA separation for confidence
+            ma_separation = abs(current_fast_ma - current_slow_ma) / current_slow_ma
+            
+            # Base confidence from MA separation and volume
+            base_confidence = min(0.8, ma_separation * 100 + (volume_ratio - 1.2) * 0.2)
+            
+            # Bullish crossover
+            if (bullish_crossover and 
+                current_price > current_fast_ma and  # Price above fast MA
+                price_vs_vwap > -0.01 and  # Not too far below VWAP
+                base_confidence > 0.6):
+                
+                # Tight intraday stops
+                stop_loss = current_slow_ma * 0.998  # Just below slow MA
+                take_profit = current_price * (1 + ma_separation * 3)  # Target based on MA separation
+                
+                return TradeSignal(
+                    agent_id=self.agent_id,
+                    symbol=symbol,
+                    signal_type=TradeSignalType.BUY,
+                    confidence=base_confidence,
+                    quantity=int(150 * base_confidence),
+                    price=current_price,
+                    stop_loss=stop_loss,
+                    take_profit=take_profit,
+                    reasoning=f"Bullish MA crossover: {self.fast_ma}MA > {self.slow_ma}MA, vol {volume_ratio:.1f}x, sep {ma_separation:.3f}"
+                )
+            
+            # Bearish crossover
+            elif (bearish_crossover and 
+                  current_price < current_fast_ma and  # Price below fast MA
+                  price_vs_vwap < 0.01 and  # Not too far above VWAP
+                  base_confidence > 0.6):
+                
+                stop_loss = current_slow_ma * 1.002  # Just above slow MA
+                take_profit = current_price * (1 - ma_separation * 3)
+                
+                return TradeSignal(
+                    agent_id=self.agent_id,
+                    symbol=symbol,
+                    signal_type=TradeSignalType.SELL,
+                    confidence=base_confidence,
+                    quantity=int(150 * base_confidence),
+                    price=current_price,
+                    stop_loss=stop_loss,
+                    take_profit=take_profit,
+                    reasoning=f"Bearish MA crossover: {self.fast_ma}MA < {self.slow_ma}MA, vol {volume_ratio:.1f}x, sep {ma_separation:.3f}"
+                )
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error in MA crossover agent signal generation: {e}")
             return None
 
 
 def create_specialized_agents() -> List[TradingAgent]:
-    """Create all specialized trading agents"""
+    """Create intraday-focused specialized trading agents"""
     agents = [
-        BreakoutAgent("breakout_agent"),
-        TrendFollowingAgent("trend_following_agent"),
-        ScalpingAgent("scalping_agent"),
-        ArbitrageAgent("arbitrage_agent"),
-        VolatilityAgent("volatility_agent")
+        BreakoutAgent("intraday_breakout_agent"),
+        MomentumScalperAgent("momentum_scalper_agent"),
+        ScalpingAgent("enhanced_scalping_agent"),
+        GapTradingAgent("gap_trading_agent"),
+        MACrossoverAgent("ma_crossover_agent")
     ]
     
     return agents
